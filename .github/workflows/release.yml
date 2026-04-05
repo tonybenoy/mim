@@ -40,15 +40,6 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create tag
-        if: steps.check_tag.outputs.changed == 'true'
-        run: |
-          VERSION="${{ steps.get_version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "v$VERSION" -m "Release v$VERSION"
-          git push origin "v$VERSION"
-
   build:
     name: Build (${{ matrix.target }})
     needs: version-check
@@ -60,12 +51,6 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             label: linux-amd64
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            label: linux-arm64
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            label: macos-amd64
           - target: aarch64-apple-darwin
             os: macos-latest
             label: macos-arm64
@@ -86,13 +71,6 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf clang cmake \
             libssl-dev libsqlcipher-dev
-
-      - name: Install Linux cross-compile deps (aarch64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libc6-dev-arm64-cross
 
       - name: Install macOS deps
         if: runner.os == 'macOS'
@@ -149,6 +127,7 @@ jobs:
         working-directory: mim-tauri
         run: cargo tauri build --target ${{ matrix.target }}
         env:
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
@@ -187,6 +166,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create tag
+        run: |
+          VERSION="${{ needs.version-check.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

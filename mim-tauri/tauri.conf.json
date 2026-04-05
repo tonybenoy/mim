@@ -1,0 +1,40 @@
+{
+  "productName": "Mim",
+  "version": "0.1.0",
+  "identifier": "com.mim.app",
+  "build": {
+    "frontendDist": "../frontend/build",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "frontend" },
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "frontend" }
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Mim — Photo Library",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 600,
+        "decorations": true,
+        "transparent": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: https://asset.localhost blob: data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["/**"],
+          "requireLiteralLeadingDot": false
+        }
+      }
+    }
+  },
+  "plugins": {
+    "fs": {},
+    "shell": {
+      "open": true
+    }
+  }
+}

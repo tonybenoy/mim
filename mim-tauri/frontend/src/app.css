@@ -1,0 +1,387 @@
+@import 'tailwindcss';
+
+/* ─── Design Tokens ─────────────────────────────────────── */
+
+@theme {
+  /* Light mode — warm pearl palette */
+  --color-bg: #f5f3f0;
+  --color-surface: #ebe8e4;
+  --color-surface-elevated: #ffffff;
+  --color-surface-glass: rgba(255, 255, 255, 0.55);
+  --color-surface-glass-hover: rgba(255, 255, 255, 0.72);
+  --color-border-glass: rgba(255, 255, 255, 0.6);
+  --color-border-subtle: rgba(0, 0, 0, 0.06);
+  --color-text-primary: #1c1917;
+  --color-text-secondary: #57534e;
+  --color-text-muted: #a8a29e;
+  --color-accent: #e07832;
+  --color-accent-hover: #c2631e;
+  --color-accent-soft: rgba(224, 120, 50, 0.12);
+  --color-accent-glow: rgba(224, 120, 50, 0.25);
+  --color-success: #16a34a;
+  --color-success-soft: rgba(22, 163, 74, 0.1);
+  --color-danger: #dc2626;
+  --color-danger-soft: rgba(220, 38, 38, 0.1);
+
+  /* Neumorphic shadows — softer, warmer */
+  --shadow-neu-raised: 5px 5px 10px rgba(166, 160, 154, 0.4), -5px -5px 10px rgba(255, 255, 255, 0.8);
+  --shadow-neu-pressed: inset 3px 3px 6px rgba(166, 160, 154, 0.35), inset -3px -3px 6px rgba(255, 255, 255, 0.7);
+  --shadow-neu-soft: 2px 2px 5px rgba(166, 160, 154, 0.3), -2px -2px 5px rgba(255, 255, 255, 0.7);
+
+  /* Glass blur */
+  --blur-glass: blur(24px) saturate(180%);
+  --blur-glass-heavy: blur(48px) saturate(200%);
+
+  /* Radii */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-smooth: 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --transition-spring: 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --transition-bounce: 600ms cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --transition-elastic: 800ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ─── Dark Mode — deep ocean palette ───────────────────── */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0c0a14;
+    --color-surface: #171326;
+    --color-surface-elevated: #1e1a30;
+    --color-surface-glass: rgba(23, 19, 38, 0.65);
+    --color-surface-glass-hover: rgba(30, 26, 48, 0.8);
+    --color-border-glass: rgba(255, 255, 255, 0.06);
+    --color-border-subtle: rgba(255, 255, 255, 0.04);
+    --color-text-primary: #f0eef5;
+    --color-text-secondary: #a09bb0;
+    --color-text-muted: #5c5672;
+    --color-accent: #f0943a;
+    --color-accent-hover: #f7a855;
+    --color-accent-soft: rgba(240, 148, 58, 0.1);
+    --color-accent-glow: rgba(240, 148, 58, 0.2);
+    --shadow-neu-raised: 5px 5px 10px rgba(4, 3, 8, 0.6), -5px -5px 10px rgba(30, 26, 48, 0.4);
+    --shadow-neu-pressed: inset 3px 3px 6px rgba(4, 3, 8, 0.5), inset -3px -3px 6px rgba(30, 26, 48, 0.3);
+    --shadow-neu-soft: 2px 2px 5px rgba(4, 3, 8, 0.4), -2px -2px 5px rgba(30, 26, 48, 0.25);
+  }
+}
+
+/* ─── Base ──────────────────────────────────────────────── */
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  user-select: none;
+  letter-spacing: -0.011em;
+}
+
+input, textarea, [contenteditable] {
+  user-select: text;
+}
+
+/* ─── Scrollbar — thin, fades in ───────────────────────── */
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0);
+  border-radius: var(--radius-full);
+  transition: background 0.3s;
+}
+
+*:hover > ::-webkit-scrollbar-thumb,
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--color-text-secondary);
+}
+
+/* ─── Glass Utilities ───────────────────────────────────── */
+
+.glass {
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--blur-glass);
+  -webkit-backdrop-filter: var(--blur-glass);
+  border: 1px solid var(--color-border-glass);
+  transition: background var(--transition-smooth), border-color var(--transition-smooth);
+}
+
+.glass:hover {
+  background: var(--color-surface-glass-hover);
+}
+
+.glass-heavy {
+  background: var(--color-surface-glass);
+  backdrop-filter: var(--blur-glass-heavy);
+  -webkit-backdrop-filter: var(--blur-glass-heavy);
+  border: 1px solid var(--color-border-glass);
+}
+
+/* ─── Neumorphic Utilities ──────────────────────────────── */
+
+.neu-raised {
+  box-shadow: var(--shadow-neu-raised);
+  border-radius: var(--radius-md);
+  transition: box-shadow var(--transition-smooth), transform var(--transition-smooth);
+}
+
+.neu-pressed {
+  box-shadow: var(--shadow-neu-pressed);
+  border-radius: var(--radius-md);
+  transition: box-shadow var(--transition-smooth);
+}
+
+.neu-soft {
+  box-shadow: var(--shadow-neu-soft);
+  border-radius: var(--radius-md);
+}
+
+.neu-button {
+  box-shadow: var(--shadow-neu-raised);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-smooth);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.neu-button::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), var(--color-accent-glow), transparent 60%);
+  opacity: 0;
+  transition: opacity var(--transition-smooth);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.neu-button:hover {
+  box-shadow: var(--shadow-neu-soft);
+  transform: translateY(-1px);
+}
+
+.neu-button:hover::after {
+  opacity: 0.4;
+}
+
+.neu-button:active {
+  box-shadow: var(--shadow-neu-pressed);
+  transform: translateY(0) scale(0.98);
+}
+
+/* ─── Animations ────────────────────────────────────────── */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-scale {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 var(--color-accent-soft); }
+  50% { box-shadow: 0 0 24px 6px var(--color-accent-glow); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes rotate-smooth {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ripple {
+  0% { transform: scale(0); opacity: 0.6; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pop-in {
+  0% { opacity: 0; transform: scale(0.5); }
+  60% { transform: scale(1.05); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--color-surface) 25%, var(--color-surface-elevated) 50%, var(--color-surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+.animate-fade-in {
+  animation: fade-in var(--transition-smooth) both;
+}
+
+.animate-fade-in-scale {
+  animation: fade-in-scale var(--transition-spring) both;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+.animate-spin {
+  animation: rotate-smooth 1s linear infinite;
+}
+
+.animate-pop-in {
+  animation: pop-in var(--transition-spring) both;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right var(--transition-smooth) both;
+}
+
+/* Staggered animation delays */
+.stagger-1 { animation-delay: 30ms; }
+.stagger-2 { animation-delay: 60ms; }
+.stagger-3 { animation-delay: 90ms; }
+.stagger-4 { animation-delay: 120ms; }
+.stagger-5 { animation-delay: 150ms; }
+.stagger-6 { animation-delay: 180ms; }
+.stagger-7 { animation-delay: 210ms; }
+.stagger-8 { animation-delay: 240ms; }
+
+/* ─── Interactive States ───────────────────────────────── */
+
+/* Photo cards — lift and glow on hover */
+.photo-card {
+  transition: all 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  will-change: transform, box-shadow;
+}
+
+.photo-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.12),
+    0 0 0 1px var(--color-accent-glow);
+}
+
+.photo-card:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 100ms;
+}
+
+/* Accent gradient for special elements */
+.accent-gradient {
+  background: linear-gradient(135deg, var(--color-accent), #e6553a, #d946ef);
+  background-size: 200% 200%;
+  animation: gradient-shift 6s ease infinite;
+}
+
+/* Tab indicator glow */
+.tab-indicator {
+  box-shadow: 0 0 16px var(--color-accent-glow), 0 0 4px var(--color-accent);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Focus ring — accessible and pretty */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Input glow on focus */
+input:focus, textarea:focus {
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  transition: box-shadow var(--transition-smooth);
+}
+
+/* ─── Status Badges ────────────────────────────────────── */
+
+.badge-success {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.badge-danger {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.badge-accent {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* ─── Smooth page transitions ──────────────────────────── */
+
+.page-enter {
+  animation: fade-in 0.3s ease-out, slide-up 0.3s ease-out;
+}
+
+/* ─── Reduced Motion ────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

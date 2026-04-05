@@ -1,0 +1,31 @@
+[package]
+name = "mim-ml"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+cuda = ["ort/cuda"]
+
+[dependencies]
+mim-core = { path = "../mim-core" }
+ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }
+ndarray = "0.16"
+image = { workspace = true }
+imageproc = "0.25"
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { version = "0.12", features = ["stream"] }
+futures-util = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+uuid = { workspace = true }
+parking_lot = "0.12"
+chrono = { workspace = true }
+rusqlite = { version = "0.32", features = ["bundled-sqlcipher"] }
+llama-cpp-2 = { version = "0.1", features = ["mtmd"] }
+encoding_rs = "0.8"

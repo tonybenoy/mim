@@ -1,0 +1,30 @@
+[package]
+name = "mim-tauri"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+mim-core = { path = "../mim-core" }
+mim-ml = { path = "../mim-ml" }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-shell = "2"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = "0.2"
+uuid = { workspace = true }
+chrono = { workspace = true }
+parking_lot = "0.12"
+rayon = "1"
+directories = "6"
+reqwest = { version = "0.12", features = ["json"] }
+warp = "0.3"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

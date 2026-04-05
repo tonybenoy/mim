@@ -1,0 +1,41 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Node / Frontend
+mim-tauri/frontend/node_modules/
+mim-tauri/frontend/build/
+mim-tauri/frontend/.svelte-kit/
+
+# Tauri
+mim-tauri/gen/schemas/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Mim data (local only)
+*.db
+*.db-shm
+*.db-wal
+.mim/
+
+# Models (downloaded at runtime)
+*.onnx
+*.gguf
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local

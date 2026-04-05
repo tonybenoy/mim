@@ -1,9 +1,9 @@
 {
   "productName": "Mim",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "identifier": "com.mim.app",
   "build": {
-    "frontendDist": "../frontend/build",
+    "frontendDist": "frontend/build",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": { "script": "npm run dev", "cwd": "frontend" },
     "beforeBuildCommand": { "script": "npm run build", "cwd": "frontend" }

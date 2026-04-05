@@ -80,7 +80,15 @@ jobs:
       - name: Install Windows deps
         if: runner.os == 'Windows'
         run: |
-          choco install cmake llvm -y
+          choco install cmake llvm openssl -y
+
+      - name: Set OpenSSL env (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "OPENSSL_DIR=C:/Program Files/OpenSSL-Win64" >> "$GITHUB_ENV"
+          echo "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL-Win64/lib" >> "$GITHUB_ENV"
+          echo "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL-Win64/include" >> "$GITHUB_ENV"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

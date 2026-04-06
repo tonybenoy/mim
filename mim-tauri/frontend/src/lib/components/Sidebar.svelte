@@ -1,5 +1,6 @@
 <script lang="ts">
   import { sidebarOpen, currentSection, mlStatus, mlStatusText, mlProgress } from '$lib/stores/ui';
+  import { tStore } from '$lib/i18n';
   import { folders, activeFolder } from '$lib/stores/photos';
   import { addFolder, removeFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder } from '$lib/api/photos';
   import { processFaces, clusterFaces, onFaceProcessingProgress } from '$lib/api/faces';
@@ -10,9 +11,13 @@
   import { fly } from 'svelte/transition';
   import { open } from '@tauri-apps/plugin-dialog';
   import { listen } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
   import type { FolderSource } from '$lib/api/photos';
   import PasswordPrompt from './PasswordPrompt.svelte';
+
+  // File watcher notification state
+  let watcherNotification = $state<{ folder: string; count: number; name: string } | null>(null);
 
   // Locked folder state
   let lockedFolders = $state<Set<string>>(new Set());
@@ -115,6 +120,26 @@
       }
     }).then(fn => unlistens.push(fn));
 
+    // Listen for file watcher events
+    listen<any>('folder-files-changed', (event) => {
+      const { folder, count } = event.payload;
+      const name = folder?.split('/').pop() || folder;
+      watcherNotification = { folder, count, name };
+      // Auto-dismiss after 10 seconds
+      setTimeout(() => {
+        if (watcherNotification?.folder === folder) {
+          watcherNotification = null;
+        }
+      }, 10000);
+    }).then(fn => unlistens.push(fn));
+
+    // Auto-start watchers for all existing folders
+    getFolders().then(f => {
+      for (const folder of f) {
+        invoke('watch_folder', { folderPath: folder.path }).catch(() => {});
+      }
+    }).catch(() => {});
+
     return () => unlistens.forEach(fn => fn());
   });
 
@@ -142,6 +167,8 @@
       folders.update(f => [...f, source]);
       activeFolder.set(source);
       await handleScanFolder(source);
+      // Start watching the folder for new files
+      invoke('watch_folder', { folderPath: source.path }).catch(() => {});
     } catch (e) {
       console.error('Failed to add folder:', e);
     }
@@ -323,14 +350,14 @@
       <div class="flex items-center justify-between px-2 py-1">
         <div class="text-[11px] font-semibold uppercase tracking-widest"
           style="color: var(--color-text-muted);">
-          Folders
+          {$tStore('sidebar.folders')}
         </div>
         <button
           class="text-[10px] px-2 py-1 rounded-lg transition-all hover:scale-105"
           style="background: var(--color-accent-soft); color: var(--color-accent);"
           onclick={handleAddFolder}
         >
-          + Add
+          {$tStore('sidebar.add')}
         </button>
       </div>
 
@@ -426,7 +453,7 @@
                 disabled={!!folderStatus[folder.path]}
                 title="Rescan for new photos"
               >
-                ↻ Scan
+                ↻ {$tStore('sidebar.scan')}
               </button>
               <button
                 class="flex-1 text-[10px] px-2 py-1.5 rounded-lg transition-all hover:scale-105"
@@ -435,7 +462,7 @@
                 disabled={!!folderStatus[folder.path]}
                 title="Detect faces"
               >
-                ◉ Faces
+                ◉ {$tStore('sidebar.faces')}
               </button>
               <button
                 class="flex-1 text-[10px] px-2 py-1.5 rounded-lg transition-all hover:scale-105"
@@ -444,7 +471,7 @@
                 disabled={!!folderStatus[folder.path]}
                 title="AI tag photos"
               >
-                ✦ Tag
+                ✦ {$tStore('sidebar.tag')}
               </button>
               <button
                 class="flex-1 text-[10px] px-2 py-1.5 rounded-lg transition-all hover:scale-105"
@@ -453,7 +480,7 @@
                 disabled={!!folderStatus[folder.path]}
                 title="Analyze photos (colors, blur, events)"
               >
-                ◎ Analyze
+                ◎ {$tStore('sidebar.analyze')}
               </button>
             </div>
           {/if}
@@ -472,11 +499,29 @@
             {#if globalProcessing}
               <span class="animate-spin">◌</span>
             {/if}
-            <span>{globalProcessing ? 'Processing...' : '▶ Process All Folders'}</span>
+            <span>{globalProcessing ? $tStore('sidebar.processing') : '▶ ' + $tStore('sidebar.processAll')}</span>
           </button>
           {#if globalText}
             <div class="text-[10px] text-center mt-1.5 px-2" style="color: var(--color-text-muted);">
               {globalText}
+            </div>
+          {/if}
+
+          <!-- File watcher notification -->
+          {#if watcherNotification}
+            <div class="mt-2 px-1 py-2 rounded-xl text-xs" style="background: var(--color-accent-soft); color: var(--color-accent);">
+              <div class="px-2 mb-1">{watcherNotification.count} new file{watcherNotification.count !== 1 ? 's' : ''} detected in {watcherNotification.name}</div>
+              <button
+                class="w-full py-1.5 rounded-lg text-[10px] font-medium transition-all hover:scale-[1.02]"
+                style="background: var(--color-accent); color: white;"
+                onclick={() => {
+                  const folder = $folders.find(f => f.path === watcherNotification?.folder);
+                  if (folder) handleScanFolder(folder);
+                  watcherNotification = null;
+                }}
+              >
+                Scan Now
+              </button>
             </div>
           {/if}
 
@@ -498,53 +543,53 @@
       <div class="mt-auto pt-3" style="border-top: 1px solid var(--color-border-glass);">
         <div class="text-[10px] font-semibold uppercase tracking-widest px-3 py-1"
           style="color: var(--color-text-muted);">
-          More
+          {$tStore('sidebar.more')}
         </div>
         <button
           class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
           style="color: {$currentSection === 'trash' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'trash' ? 'var(--color-accent-soft)' : 'transparent'};"
           onclick={() => currentSection.set('trash')}
         >
-          <span>&#x2298;</span> Trash
+          <span>&#x2298;</span> {$tStore('sidebar.trash')}
         </button>
         <button
           class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
           style="color: {$currentSection === 'map' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'map' ? 'var(--color-accent-soft)' : 'transparent'};"
           onclick={() => currentSection.set('map')}
         >
-          <span>&#x25CE;</span> Places
+          <span>&#x25CE;</span> {$tStore('sidebar.places')}
         </button>
         <button
           class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
           style="color: {$currentSection === 'memories' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'memories' ? 'var(--color-accent-soft)' : 'transparent'};"
           onclick={() => currentSection.set('memories')}
         >
-          <span>&#x274B;</span> Memories
+          <span>&#x274B;</span> {$tStore('sidebar.memories')}
         </button>
       </div>
 
     {:else if $currentSection === 'people'}
       <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
         style="color: var(--color-text-muted);">
-        People
+        {$tStore('nav.people')}
       </div>
       <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
-        Select a folder and run face detection to see people here
+        {$tStore('sidebar.people_hint')}
       </div>
 
     {:else if $currentSection === 'albums'}
       <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
         style="color: var(--color-text-muted);">
-        Albums
+        {$tStore('nav.albums')}
       </div>
 
     {:else if $currentSection === 'trash'}
       <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
         style="color: var(--color-text-muted);">
-        Trash
+        {$tStore('sidebar.trash')}
       </div>
       <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
-        Deleted photos appear here. Restore or permanently delete them.
+        {$tStore('sidebar.trash_hint')}
       </div>
     {/if}
   </aside>

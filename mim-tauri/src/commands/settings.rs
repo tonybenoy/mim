@@ -1,5 +1,23 @@
 use crate::state::AppState;
+use serde::Serialize;
 use tauri::State;
+
+#[derive(Debug, Serialize)]
+pub struct GpuInfo {
+    pub cuda_available: bool,
+    pub label: String,
+}
+
+#[tauri::command]
+pub async fn get_gpu_info() -> Result<GpuInfo, String> {
+    let cuda_available = mim_ml::is_cuda_available();
+    let label = if cuda_available {
+        "GPU: CUDA available".to_string()
+    } else {
+        "GPU: CPU only (build with --features mim-ml/cuda for GPU)".to_string()
+    };
+    Ok(GpuInfo { cuda_available, label })
+}
 
 #[tauri::command]
 pub async fn get_setting(

@@ -248,6 +248,7 @@ impl PhotosDb {
         perceptual_hash: Option<&str>,
         is_screenshot: bool,
         time_of_day: Option<&str>,
+        ocr_text: Option<&str>,
     ) -> Result<()> {
         let conn = conn.lock();
         conn.execute(
@@ -257,15 +258,17 @@ impl PhotosDb {
                 perceptual_hash = ?3,
                 is_screenshot = ?4,
                 time_of_day = ?5,
+                ocr_text = COALESCE(?6, ocr_text),
                 analysis_processed = 1,
-                updated_at = ?6
-             WHERE id = ?7",
+                updated_at = ?7
+             WHERE id = ?8",
             params![
                 blur_score,
                 dominant_colors,
                 perceptual_hash,
                 is_screenshot,
                 time_of_day,
+                ocr_text,
                 chrono::Utc::now().to_rfc3339(),
                 photo_id,
             ],

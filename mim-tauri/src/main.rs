@@ -131,6 +131,9 @@ fn main() {
             commands::import_custom_model,
             commands::get_setting,
             commands::set_setting,
+            commands::get_gpu_info,
+            commands::upscale_photo,
+            commands::import_google_takeout,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mim");

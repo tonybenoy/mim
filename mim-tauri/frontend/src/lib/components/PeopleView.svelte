@@ -3,6 +3,8 @@
   import { activeFolder, photos } from '$lib/stores/photos';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import { fade, fly, scale } from 'svelte/transition';
+  import { pushAction } from '$lib/undo';
+  import { tStore } from '$lib/i18n';
   import FaceTimeline from './FaceTimeline.svelte';
   import type { Photo } from '$lib/api/photos';
 
@@ -75,14 +77,33 @@
 
   async function saveRename() {
     if (!editingId || !editName.trim()) return;
+    const id = editingId;
+    const newName = editName.trim();
+    const oldName = identities.find(i => i.id === id)?.name || '';
     try {
-      await renameIdentity(editingId, editName.trim());
-      identities = identities.map(i =>
-        i.id === editingId ? { ...i, name: editName.trim() } : i
+      await renameIdentity(id, newName);
+      identitiesWithAvatars = identitiesWithAvatars.map(i =>
+        i.identity.id === id ? { ...i, identity: { ...i.identity, name: newName } } : i
       );
-      if (selectedIdentity?.id === editingId) {
-        selectedIdentity = { ...selectedIdentity, name: editName.trim() };
+      if (selectedIdentity?.id === id) {
+        selectedIdentity = { ...selectedIdentity, name: newName };
       }
+      pushAction({
+        type: 'rename_person',
+        description: $tStore('undo.rename_person'),
+        forward: async () => {
+          await renameIdentity(id, newName);
+          identitiesWithAvatars = identitiesWithAvatars.map(i =>
+            i.identity.id === id ? { ...i, identity: { ...i.identity, name: newName } } : i
+          );
+        },
+        backward: async () => {
+          await renameIdentity(id, oldName);
+          identitiesWithAvatars = identitiesWithAvatars.map(i =>
+            i.identity.id === id ? { ...i, identity: { ...i.identity, name: oldName } } : i
+          );
+        },
+      });
     } catch (e) {
       console.error('Failed to rename:', e);
     }
@@ -124,7 +145,7 @@
         style="color: var(--color-accent);"
         onclick={() => { selectedIdentity = null; identityPhotos = []; }}
       >
-        ← Back to People
+        ← {$tStore('people.back')}
       </button>
 
       <div class="flex items-center gap-4 mb-6">
@@ -171,14 +192,14 @@
               style="background: var(--color-surface); color: var(--color-text-secondary);"
               onclick={() => startRename(selectedIdentity!)}
             >
-              Rename
+              {$tStore('action.rename')}
             </button>
             <button
               class="text-xs px-3 py-1.5 rounded-lg"
               style="background: {showMerge ? 'var(--color-accent-soft)' : 'var(--color-surface)'}; color: {showMerge ? 'var(--color-accent)' : 'var(--color-text-secondary)'};"
               onclick={() => showMerge = !showMerge}
             >
-              {showMerge ? 'Cancel Merge' : 'Merge Into...'}
+              {showMerge ? $tStore('people.cancel_merge') : $tStore('people.merge_into')}
             </button>
           </div>
         {/if}
@@ -273,12 +294,12 @@
     <!-- People grid -->
     <div class="flex items-center justify-between mb-4" in:fade={{ duration: 200 }}>
       <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-        People
+        {$tStore('people.title')}
       </h2>
       {#if identities.length > 0}
         <span class="text-xs px-2 py-0.5 rounded-full"
           style="background: var(--color-accent-soft); color: var(--color-accent);">
-          {identities.length} people
+          {identities.length} {$tStore('people.title').toLowerCase()}
         </span>
       {/if}
     </div>
@@ -295,10 +316,10 @@
           ◉
         </div>
         <p class="text-base font-medium" style="color: var(--color-text-secondary);">
-          No people found yet
+          {$tStore('people.no_people')}
         </p>
         <p class="text-sm" style="color: var(--color-text-muted);">
-          Run face detection on a folder first
+          {$tStore('people.run_detection')}
         </p>
       </div>
     {:else}

@@ -27,7 +27,6 @@ Named after Mimir, the Norse god of wisdom and memory. Mim runs entirely on your
 - **Photo chat** -- Ask questions about your photos in natural language
 - **OCR detection** -- PP-OCRv4 text detection to identify photos containing text
 - **Scene classification** -- Beach, restaurant, concert, wedding, etc.
-- **Aesthetic scoring** -- Photo quality rating (composition, lighting, sharpness)
 - **Blur detection** -- Flag blurry photos for cleanup
 - **Screenshot detection** -- Separate screenshots from camera photos
 - **Dominant colors** -- Extract color palette per photo
@@ -46,7 +45,7 @@ Named after Mimir, the Norse god of wisdom and memory. Mim runs entirely on your
 
 ### Other
 - **Logging** -- Daily rotating log files with 7-day retention
-- **Settings** -- Model selection, GPU toggle, about info
+- **Settings** -- Model selection, GPU info, about info
 - **Cross-platform** -- Linux, macOS, Windows via Tauri v2
 - **CUDA support** -- Optional GPU acceleration for face detection and Gemma
 
@@ -156,7 +155,7 @@ Settings are accessible via the gear icon in the top bar:
 
 - **Vision Model** -- Choose between Gemma 4 E4B (best), E2B (lighter), or Gemma 3 4B (legacy)
 - **Face Detection Model** -- SCRFD-10G (most accurate), 2.5G (balanced), 500M (fastest)
-- **GPU** -- Enable CUDA acceleration when available
+- **GPU** -- Shows CUDA status (compile-time; build with `--features mim-ml/cuda` for GPU)
 - **Phone Sync** -- Enable/configure Syncthing integration
 
 ## CUDA Support

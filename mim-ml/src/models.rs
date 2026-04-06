@@ -6,13 +6,44 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::watch;
 use tracing::info;
 
-const SCRFD_2_5G_URL: &str =
-    "https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/scrfd_10g_bnkps.onnx";
 const ARCFACE_URL: &str =
     "https://huggingface.co/public-data/insightface/resolve/main/models/buffalo_l/w600k_r50.onnx";
-
-const SCRFD_FILENAME: &str = "scrfd_10g_bnkps.onnx";
 const ARCFACE_FILENAME: &str = "w600k_r50.onnx";
+
+/// Configuration for a specific SCRFD model variant.
+#[derive(Debug, Clone)]
+pub struct ScrfdModelConfig {
+    pub id: &'static str,
+    pub filename: &'static str,
+    pub url: &'static str,
+}
+
+const SCRFD_CONFIGS: &[ScrfdModelConfig] = &[
+    ScrfdModelConfig {
+        id: "scrfd-10g",
+        filename: "scrfd_10g_bnkps.onnx",
+        url: "https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/scrfd_10g_bnkps.onnx",
+    },
+    ScrfdModelConfig {
+        id: "scrfd-2.5g",
+        filename: "scrfd_2.5g_bnkps.onnx",
+        url: "https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/scrfd_2.5g_bnkps.onnx",
+    },
+    ScrfdModelConfig {
+        id: "scrfd-500m",
+        filename: "scrfd_500m_bnkps.onnx",
+        url: "https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/scrfd_500m_bnkps.onnx",
+    },
+];
+
+/// Look up a SCRFD model config by its ID (e.g. "scrfd-10g").
+/// Falls back to scrfd-10g if the ID is not recognized.
+pub fn get_scrfd_config(model_id: &str) -> &'static ScrfdModelConfig {
+    SCRFD_CONFIGS
+        .iter()
+        .find(|c| c.id == model_id)
+        .unwrap_or(&SCRFD_CONFIGS[0])
+}
 
 #[derive(Debug, Clone)]
 pub struct DownloadProgress {
@@ -24,11 +55,21 @@ pub struct DownloadProgress {
 pub struct ModelManager {
     models_dir: PathBuf,
     progress_tx: Option<Arc<watch::Sender<Option<DownloadProgress>>>>,
+    scrfd_config: &'static ScrfdModelConfig,
 }
 
 impl ModelManager {
     pub fn new(models_dir: PathBuf) -> Self {
-        Self { models_dir, progress_tx: None }
+        Self {
+            models_dir,
+            progress_tx: None,
+            scrfd_config: get_scrfd_config("scrfd-10g"),
+        }
+    }
+
+    pub fn with_scrfd_model(mut self, model_id: &str) -> Self {
+        self.scrfd_config = get_scrfd_config(model_id);
+        self
     }
 
     pub fn with_progress(mut self, tx: watch::Sender<Option<DownloadProgress>>) -> Self {
@@ -37,7 +78,7 @@ impl ModelManager {
     }
 
     pub fn scrfd_path(&self) -> PathBuf {
-        self.models_dir.join(SCRFD_FILENAME)
+        self.models_dir.join(self.scrfd_config.filename)
     }
 
     pub fn arcface_path(&self) -> PathBuf {
@@ -45,7 +86,7 @@ impl ModelManager {
     }
 
     pub async fn ensure_scrfd(&self) -> Result<PathBuf> {
-        self.ensure_model(SCRFD_FILENAME, SCRFD_2_5G_URL).await
+        self.ensure_model(self.scrfd_config.filename, self.scrfd_config.url).await
     }
 
     pub async fn ensure_arcface(&self) -> Result<PathBuf> {

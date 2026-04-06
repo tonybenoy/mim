@@ -1,11 +1,12 @@
 <script lang="ts">
   import { selectedPhotoId } from '$lib/stores/ui';
   import { photos, activeFolder } from '$lib/stores/photos';
-  import { convertFileSrc } from '@tauri-apps/api/core';
+  import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { fade, fly, scale } from 'svelte/transition';
   import { chatAboutPhoto } from '$lib/api/gemma';
   import { getFacesForPhoto, type Face } from '$lib/api/faces';
   import { toggleFavorite, setRating, trashPhoto, openVideoExternal } from '$lib/api/photos';
+  import { tStore } from '$lib/i18n';
   import ComparisonView from './ComparisonView.svelte';
   import type { Photo } from '$lib/api/photos';
 
@@ -14,6 +15,8 @@
   let isChatting = $state(false);
   let faces = $state<Face[]>([]);
   let showCompare = $state(false);
+  let isUpscaling = $state(false);
+  let upscaleMessage = $state('');
 
   // Zoom & fullscreen
   let zoomLevel = $state(1);
@@ -111,6 +114,24 @@
   async function handleOpenExternal() {
     if (!photo || !$activeFolder) return;
     await openVideoExternal($activeFolder.path, photo.id);
+  }
+
+  async function handleUpscale() {
+    if (!photo || !$activeFolder || isUpscaling) return;
+    isUpscaling = true;
+    upscaleMessage = '';
+    try {
+      const outputPath: string = await invoke('upscale_photo', {
+        folderPath: $activeFolder.path,
+        photoId: photo.id,
+      });
+      upscaleMessage = $tStore('detail.upscale_success');
+      setTimeout(() => { upscaleMessage = ''; }, 5000);
+    } catch (e) {
+      upscaleMessage = `Error: ${e}`;
+      setTimeout(() => { upscaleMessage = ''; }, 5000);
+    }
+    isUpscaling = false;
   }
 
   let photo = $derived($photos.find(p => p.id === $selectedPhotoId) ?? null);
@@ -261,6 +282,22 @@
             >
               ✕
             </button>
+            <!-- Upscale -->
+            {#if photo.media_type !== 'video'}
+              <button
+                class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm"
+                style="background: var(--color-surface); color: var(--color-accent);"
+                onclick={handleUpscale}
+                disabled={isUpscaling}
+                title={$tStore('action.upscale')}
+              >
+                {#if isUpscaling}
+                  <span class="inline-block animate-spin">&#x25CC;</span>
+                {:else}
+                  &#x2B06;
+                {/if}
+              </button>
+            {/if}
             <!-- Open external (for videos) -->
             {#if photo.media_type === 'video'}
               <button
@@ -304,6 +341,13 @@
             </button>
           {/if}
         </div>
+
+        <!-- Upscale status -->
+        {#if upscaleMessage}
+          <div class="text-xs px-3 py-2 rounded-xl" style="background: {upscaleMessage.startsWith('Error') ? '#fee2e2' : 'var(--color-accent-soft)'}; color: {upscaleMessage.startsWith('Error') ? '#dc2626' : 'var(--color-accent)'};">
+            {upscaleMessage}
+          </div>
+        {/if}
 
         <!-- Filename -->
         <h3 class="text-base font-semibold break-all" style="color: var(--color-text-primary);">

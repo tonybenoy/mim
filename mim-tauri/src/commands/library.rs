@@ -84,7 +84,7 @@ pub async fn open_video_external(
     Ok(())
 }
 
-// ── Share via OS (open containing folder) ───────────────
+// ── Share via OS (open photo in default viewer) ─────────
 
 #[tauri::command]
 pub async fn share_photo_os(
@@ -97,10 +97,11 @@ pub async fn share_photo_os(
         .map_err(|e| e.to_string())?
         .ok_or("Photo not found")?;
     let full_path = std::path::Path::new(&folder_path).join(&photo.relative_path);
-    // Open the containing folder
-    if let Some(parent) = full_path.parent() {
-        open::that(parent).map_err(|e| format!("Failed to open folder: {}", e))?;
+    if !full_path.exists() {
+        return Err("Photo file not found on disk".to_string());
     }
+    // Open the photo file in the OS default viewer/app
+    open::that(&full_path).map_err(|e| format!("Failed to open photo: {}", e))?;
     Ok(())
 }
 
@@ -262,21 +263,38 @@ pub async fn export_album_zip(
     let photo_ids = mim_core::db::AlbumsDb::get_photos(db.reader(), &album_id)
         .map_err(|e| e.to_string())?;
 
-    // Create destination directory
+    // Ensure parent directory exists
     let dest = std::path::Path::new(&dest_path);
-    std::fs::create_dir_all(dest).map_err(|e| format!("Create dir failed: {}", e))?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("Create parent dir failed: {}", e))?;
+    }
+
+    // Create the ZIP file
+    let zip_file = std::fs::File::create(dest)
+        .map_err(|e| format!("Failed to create zip file: {}", e))?;
+    let mut zip_writer = zip::ZipWriter::new(zip_file);
+    let zip_options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     let mut count = 0u32;
     for pid in &photo_ids {
         if let Ok(Some(photo)) = PhotosDb::get_by_id(db.reader(), pid) {
             let src = std::path::Path::new(&folder_path).join(&photo.relative_path);
-            let dst = dest.join(&photo.filename);
             if src.exists() {
-                if let Ok(_) = std::fs::copy(&src, &dst) {
-                    count += 1;
-                }
+                let data = std::fs::read(&src)
+                    .map_err(|e| format!("Failed to read {}: {}", photo.filename, e))?;
+                zip_writer
+                    .start_file(&photo.filename, zip_options)
+                    .map_err(|e| format!("Failed to add to zip: {}", e))?;
+                use std::io::Write;
+                zip_writer
+                    .write_all(&data)
+                    .map_err(|e| format!("Failed to write to zip: {}", e))?;
+                count += 1;
             }
         }
     }
+
+    zip_writer.finish().map_err(|e| format!("Failed to finalize zip: {}", e))?;
     Ok(count)
 }

@@ -2,14 +2,17 @@
   import { currentSection, type AppSection } from '$lib/stores/ui';
   import { fly } from 'svelte/transition';
   import { spring } from 'svelte/motion';
+  import { tStore } from '$lib/i18n';
 
-  const sections: { id: AppSection; label: string; icon: string }[] = [
-    { id: 'library', label: 'Library', icon: '◈' },
-    { id: 'people', label: 'People', icon: '◉' },
-    { id: 'chat', label: 'Chat', icon: '✦' },
-    { id: 'albums', label: 'Albums', icon: '▣' },
-    { id: 'search', label: 'Search', icon: '⌕' },
+  const sectionDefs: { id: AppSection; labelKey: string; icon: string }[] = [
+    { id: 'library', labelKey: 'nav.library', icon: '◈' },
+    { id: 'people', labelKey: 'nav.people', icon: '◉' },
+    { id: 'chat', labelKey: 'nav.chat', icon: '✦' },
+    { id: 'albums', labelKey: 'nav.albums', icon: '▣' },
+    { id: 'search', labelKey: 'nav.search', icon: '⌕' },
   ];
+
+  let sections = $derived(sectionDefs.map(s => ({ ...s, label: $tStore(s.labelKey) })));
 
   let indicatorX = spring(0, { stiffness: 0.12, damping: 0.65 });
   let indicatorScale = spring(1, { stiffness: 0.3, damping: 0.7 });

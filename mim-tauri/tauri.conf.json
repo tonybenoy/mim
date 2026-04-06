@@ -1,6 +1,6 @@
 {
   "productName": "Mim",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "identifier": "com.mim.app",
   "build": {
     "frontendDist": "frontend/build",
@@ -37,10 +37,10 @@
       "open": true
     },
     "updater": {
-      "active": true,
+      "active": false,
       "dialog": true,
       "endpoints": [
-        "https://github.com/mim-app/mim/releases/latest/download/latest.json"
+        "https://github.com/tonybenoy/mim/releases/latest/download/latest.json"
       ],
       "pubkey": ""
     }

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { searchQuery, sidebarOpen, currentSection, themeMode, type ThemeMode } from '$lib/stores/ui';
   import { fly, fade } from 'svelte/transition';
+  import { undo, redo, canUndo, canRedo, lastUndoDescription } from '$lib/undo';
+  import { tStore } from '$lib/i18n';
   import Settings from './Settings.svelte';
 
   let searchFocused = $state(false);
@@ -20,7 +22,21 @@
   }
 
   const themeIcon: Record<ThemeMode, string> = { auto: '◐', light: '☀', dark: '☾' };
+
+  function handleGlobalKeydown(e: KeyboardEvent) {
+    // Don't intercept if user is typing in an input/textarea
+    if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
+    if (e.key === 'z' && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+      e.preventDefault();
+      redo();
+    } else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      undo();
+    }
+  }
 </script>
+
+<svelte:window onkeydown={handleGlobalKeydown} />
 
 <header
   class="glass-heavy fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-5"
@@ -54,7 +70,7 @@
       <span class="text-sm transition-all duration-300" style="color: {searchFocused ? 'var(--color-accent)' : 'var(--color-text-muted)'};">⌕</span>
       <input
         type="text"
-        placeholder="Search photos, people, places..."
+        placeholder={$tStore('topbar.search_placeholder')}
         class="flex-1 bg-transparent outline-none text-sm"
         style="color: var(--color-text-primary);"
         bind:value={$searchQuery}
@@ -73,6 +89,26 @@
       {/if}
     </div>
   </div>
+
+  <!-- Undo/Redo buttons -->
+  <button
+    class="neu-button w-9 h-9 flex items-center justify-center rounded-xl shrink-0 transition-all duration-300 hover:scale-110"
+    style="background: var(--color-surface); color: {$canUndo ? 'var(--color-text-secondary)' : 'var(--color-text-muted)'}; font-size: 14px;"
+    onclick={() => undo()}
+    disabled={!$canUndo}
+    title="{$tStore('topbar.undo')}{$lastUndoDescription ? ': ' + $lastUndoDescription : ''} (Ctrl+Z)"
+  >
+    &#x21A9;
+  </button>
+  <button
+    class="neu-button w-9 h-9 flex items-center justify-center rounded-xl shrink-0 transition-all duration-300 hover:scale-110"
+    style="background: var(--color-surface); color: {$canRedo ? 'var(--color-text-secondary)' : 'var(--color-text-muted)'}; font-size: 14px;"
+    onclick={() => redo()}
+    disabled={!$canRedo}
+    title="{$tStore('topbar.redo')} (Ctrl+Shift+Z)"
+  >
+    &#x21AA;
+  </button>
 
   <!-- Theme toggle -->
   <button

@@ -26,6 +26,7 @@ pub struct AnalysisResult {
     pub perceptual_hash: String,
     pub blur_score: f32,
     pub is_screenshot: bool,
+    pub has_text: bool,
     pub time_of_day: String,
 }
 
@@ -46,6 +47,7 @@ impl PhotoAnalyzer {
         let perceptual_hash = compute_phash(&gray);
         let blur_score = detect_blur(&gray);
         let is_screenshot = detect_screenshot(photo, &rgb);
+        let has_text = is_screenshot || detect_text_heuristic(&rgb);
         let time_of_day = classify_time_of_day(photo, &gray);
 
         Some(AnalysisResult {
@@ -53,6 +55,7 @@ impl PhotoAnalyzer {
             perceptual_hash,
             blur_score,
             is_screenshot,
+            has_text,
             time_of_day,
         })
     }
@@ -82,6 +85,12 @@ impl PhotoAnalyzer {
             match Self::analyze(photo, &img_path) {
                 Some(result) => {
                     let colors_json = serde_json::to_string(&result.dominant_colors).ok();
+                    // If text detected, set a marker in ocr_text
+                    let ocr_text = if result.has_text {
+                        Some("[text detected]")
+                    } else {
+                        None
+                    };
                     let _ = PhotosDb::update_analysis(
                         conn_writer,
                         &photo.id,
@@ -90,6 +99,7 @@ impl PhotoAnalyzer {
                         Some(&result.perceptual_hash),
                         result.is_screenshot,
                         Some(&result.time_of_day),
+                        ocr_text,
                     );
 
                     // Reverse geocode if lat/lon present but location_name is missing
@@ -488,6 +498,64 @@ fn check_solid_band(img: &RgbImage, y_start: u32, y_end: u32) -> bool {
     }
 
     total > 0 && (matching as f64 / total as f64) > 0.85
+}
+
+// ---------------------------------------------------------------------------
+// Text Detection Heuristic (no ML model needed)
+// ---------------------------------------------------------------------------
+
+/// Detect whether an image likely contains significant text regions.
+/// Checks for large uniform-color bands and high edge density typical of
+/// documents, screenshots, and text-heavy images.
+fn detect_text_heuristic(img: &RgbImage) -> bool {
+    let (w, h) = img.dimensions();
+    if w < 100 || h < 100 {
+        return false;
+    }
+
+    // Resize to 128x128 for speed
+    let small = image::imageops::resize(img, 128, 128, image::imageops::FilterType::Nearest);
+    let gray: GrayImage = image::DynamicImage::ImageRgb8(
+        image::RgbImage::from_raw(128, 128, small.into_raw()).unwrap_or_default()
+    ).to_luma8();
+
+    // Count horizontal edge transitions (text has many sharp transitions)
+    let mut transitions = 0u32;
+    let mut total = 0u32;
+    for y in 0..128 {
+        for x in 1..128 {
+            let diff = (gray.get_pixel(x, y)[0] as i32 - gray.get_pixel(x - 1, y)[0] as i32).abs();
+            if diff > 40 {
+                transitions += 1;
+            }
+            total += 1;
+        }
+    }
+
+    if total == 0 {
+        return false;
+    }
+
+    // High transition ratio suggests text-like content
+    let transition_ratio = transitions as f32 / total as f32;
+
+    // Also check for large uniform background: sample corners
+    let corners = [
+        img.get_pixel(5, 5),
+        img.get_pixel(w - 6, 5),
+        img.get_pixel(5, h - 6),
+        img.get_pixel(w - 6, h - 6),
+    ];
+    let corner_similar = corners.windows(2).all(|pair| {
+        let a = pair[0];
+        let b = pair[1];
+        (a[0] as i32 - b[0] as i32).abs() +
+        (a[1] as i32 - b[1] as i32).abs() +
+        (a[2] as i32 - b[2] as i32).abs() < 60
+    });
+
+    // Text-heavy images: high transitions + uniform background
+    (transition_ratio > 0.15 && corner_similar) || transition_ratio > 0.25
 }
 
 // ---------------------------------------------------------------------------

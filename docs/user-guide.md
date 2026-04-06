@@ -172,7 +172,7 @@ Type naturally -- "beach vacation", "birthday party", "code screenshots".
 Access via the gear icon (top right):
 - **Vision Model** -- Choose AI model size vs speed tradeoff
 - **Face Detection** -- Choose accuracy vs speed
-- **GPU** -- Enable CUDA for faster AI processing
+- **GPU** -- Shows whether CUDA is available (compile-time; build with `--features mim-ml/cuda` for GPU)
 - **About** -- Version info and project description
 - **Exit** -- Quit Mim
 

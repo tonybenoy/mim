@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { getStorageStats, type StorageStats } from '$lib/api/photos';
   import { open as openDialog } from '@tauri-apps/plugin-dialog';
+  import { locale, localeNames, tStore, type LocaleCode } from '$lib/i18n';
 
   interface ModelInfo {
     name: string;
@@ -24,8 +25,10 @@
 
   let gemmaModel = $state('gemma-3-4b');
   let scrfdModel = $state('scrfd-10g');
-  let useGpu = $state(false);
-  let thumbnailSize = $state(256);
+  let gpuInfo = $state<{ cuda_available: boolean; label: string } | null>(null);
+  let currentLocale = $state<LocaleCode>('en');
+  let importLoading = $state(false);
+  let importMessage = $state('');
 
   // Storage stats
   let storageStats = $state<StorageStats | null>(null);
@@ -42,6 +45,7 @@
     if (show) {
       loadModels();
       loadSettings();
+      loadGpuInfo();
       if ($activeFolder) {
         loadStorageStats();
       }
@@ -49,14 +53,25 @@
     }
   });
 
+  async function loadGpuInfo() {
+    try {
+      gpuInfo = await invoke('get_gpu_info');
+    } catch (e) {
+      console.error('Failed to load GPU info:', e);
+    }
+  }
+
   async function loadSettings() {
     try {
       const saved = await invoke('get_setting', { key: 'gemma_model' }) as string | null;
       if (saved) gemmaModel = saved;
       const savedScrfd = await invoke('get_setting', { key: 'scrfd_model' }) as string | null;
       if (savedScrfd) scrfdModel = savedScrfd;
-      const savedGpu = await invoke('get_setting', { key: 'use_gpu' }) as string | null;
-      if (savedGpu) useGpu = savedGpu === 'true';
+      const savedLocale = await invoke('get_setting', { key: 'locale' }) as string | null;
+      if (savedLocale && savedLocale in localeNames) {
+        currentLocale = savedLocale as LocaleCode;
+        locale.set(currentLocale);
+      }
     } catch {}
   }
 
@@ -71,7 +86,7 @@
   // Auto-save when settings change
   $effect(() => { saveSetting('gemma_model', gemmaModel); });
   $effect(() => { saveSetting('scrfd_model', scrfdModel); });
-  $effect(() => { saveSetting('use_gpu', String(useGpu)); });
+  $effect(() => { locale.set(currentLocale); saveSetting('locale', currentLocale); });
 
   async function loadModels() {
     modelsLoading = true;
@@ -199,6 +214,63 @@
     { value: 'scrfd-500m', label: 'SCRFD-500M (1 MB) — Fastest' },
   ];
 
+  async function handleImportApple() {
+    let selected: string | null = null;
+    try {
+      const result = await open({ directory: true, multiple: false });
+      if (result && typeof result === 'string') selected = result;
+    } catch {}
+    if (!selected) return;
+
+    try {
+      const source = await invoke('add_folder', { path: selected });
+      await invoke('scan_folder', { path: selected });
+      importMessage = 'Folder added and scanned successfully!';
+      setTimeout(() => { importMessage = ''; }, 5000);
+    } catch (e) {
+      importMessage = `Error: ${e}`;
+      setTimeout(() => { importMessage = ''; }, 5000);
+    }
+  }
+
+  async function handleImportGoogleTakeout() {
+    // Select source folder
+    let sourcePath: string | null = null;
+    try {
+      const result = await open({ directory: true, multiple: false, title: $tStore('import.select_takeout') });
+      if (result && typeof result === 'string') sourcePath = result;
+    } catch {}
+    if (!sourcePath) return;
+
+    // Select destination folder
+    let destPath: string | null = null;
+    try {
+      const result = await open({ directory: true, multiple: false, title: $tStore('import.select_dest') });
+      if (result && typeof result === 'string') destPath = result;
+    } catch {}
+    if (!destPath) return;
+
+    importLoading = true;
+    importMessage = $tStore('import.importing');
+    try {
+      const result: any = await invoke('import_google_takeout', {
+        sourcePath,
+        destFolderPath: destPath,
+      });
+      importMessage = `${$tStore('import.done')}: ${result.imported} imported, ${result.with_metadata} with metadata`;
+      // Also add the dest folder to the library
+      try {
+        await invoke('add_folder', { path: destPath });
+        await invoke('scan_folder', { path: destPath });
+      } catch {}
+      setTimeout(() => { importMessage = ''; }, 10000);
+    } catch (e) {
+      importMessage = `Error: ${e}`;
+      setTimeout(() => { importMessage = ''; }, 5000);
+    }
+    importLoading = false;
+  }
+
   function close() {
     show = false;
   }
@@ -235,7 +307,7 @@
       transition:fly={{ y: 20, duration: 300 }}
     >
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">Settings</h2>
+        <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">{$tStore('settings.title')}</h2>
         <button
           class="w-8 h-8 rounded-lg flex items-center justify-center"
           style="background: var(--color-surface); color: var(--color-text-secondary);"
@@ -243,10 +315,58 @@
         >✕</button>
       </div>
 
+      <!-- Language -->
+      <div class="mb-6">
+        <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
+          {$tStore('settings.language')}
+        </div>
+        <select
+          class="w-full px-3 py-2.5 rounded-xl text-sm border-none outline-none cursor-pointer"
+          style="background: var(--color-surface); color: var(--color-text-primary);"
+          bind:value={currentLocale}
+        >
+          {#each Object.entries(localeNames) as [code, name]}
+            <option value={code}>{name}</option>
+          {/each}
+        </select>
+      </div>
+
+      <!-- Import -->
+      <div class="mb-6">
+        <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
+          {$tStore('settings.import')}
+        </div>
+        <div class="space-y-2">
+          <button
+            class="w-full py-2.5 rounded-xl text-xs font-medium transition-all hover:scale-[1.02]"
+            style="background: var(--color-surface); color: var(--color-text-secondary);"
+            onclick={handleImportApple}
+          >
+            {$tStore('settings.import_apple')}
+          </button>
+          <button
+            class="w-full py-2.5 rounded-xl text-xs font-medium transition-all hover:scale-[1.02]"
+            style="background: var(--color-accent-soft); color: var(--color-accent);"
+            onclick={handleImportGoogleTakeout}
+            disabled={importLoading}
+          >
+            {importLoading ? $tStore('import.importing') : $tStore('settings.import_google')}
+          </button>
+          <p class="text-[10px] px-1" style="color: var(--color-text-muted);">
+            {$tStore('settings.import_google_hint')}
+          </p>
+          {#if importMessage}
+            <div class="text-xs px-3 py-2 rounded-xl" style="background: {importMessage.startsWith('Error') ? '#fee2e2' : 'var(--color-accent-soft)'}; color: {importMessage.startsWith('Error') ? '#dc2626' : 'var(--color-accent)'};">
+              {importMessage}
+            </div>
+          {/if}
+        </div>
+      </div>
+
       <!-- AI Model Selection -->
       <div class="mb-6">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
-          Vision Model (Gemma)
+          {$tStore('settings.vision_model')}
         </div>
         <div class="space-y-2">
           {#each gemmaOptions as opt}
@@ -267,7 +387,7 @@
       <!-- Face Detection Model -->
       <div class="mb-6">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
-          Face Detection Model
+          {$tStore('settings.face_model')}
         </div>
         <div class="space-y-2">
           {#each scrfdOptions as opt}
@@ -282,22 +402,24 @@
         </div>
       </div>
 
-      <!-- GPU -->
+      <!-- GPU Info -->
       <div class="mb-6">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
-          Performance
+          {$tStore('settings.performance')}
         </div>
-        <label class="flex items-center justify-between p-3 rounded-xl cursor-pointer"
+        <div class="flex items-center gap-2 p-3 rounded-xl"
           style="background: var(--color-surface);">
-          <span class="text-sm" style="color: var(--color-text-primary);">Use GPU (CUDA) when available</span>
-          <input type="checkbox" bind:checked={useGpu} class="accent-[var(--color-accent)]" />
-        </label>
+          <div class="w-2 h-2 rounded-full shrink-0" style="background: {gpuInfo?.cuda_available ? '#34d399' : '#94a3b8'};"></div>
+          <span class="text-sm" style="color: var(--color-text-primary);">
+            {gpuInfo?.label ?? 'Checking GPU...'}
+          </span>
+        </div>
       </div>
 
       <!-- Storage Dashboard -->
       <div class="mb-6">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
-          Storage
+          {$tStore('settings.storage')}
         </div>
         {#if storageLoading}
           <div class="flex items-center justify-center py-4">
@@ -356,7 +478,7 @@
       <!-- Phone Sync -->
       <div class="mb-6">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
-          Phone Sync
+          {$tStore('settings.phone_sync')}
         </div>
         <div class="rounded-xl p-4 space-y-3" style="background: var(--color-surface);">
           {#if syncStep === 0}
@@ -442,7 +564,7 @@
       <div class="mb-6">
         <div class="flex items-center justify-between mb-3">
           <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">
-            Models (Advanced)
+            {$tStore('settings.models_advanced')}
           </div>
           <button
             class="text-[10px] px-2 py-1 rounded-lg transition-all hover:scale-105"
@@ -503,7 +625,7 @@
       <!-- About -->
       <div class="mb-6 p-4 rounded-xl" style="background: var(--color-surface);">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-2" style="color: var(--color-text-muted);">
-          About
+          {$tStore('settings.about')}
         </div>
         <div class="text-sm font-semibold" style="color: var(--color-text-primary);">Mim v1.0</div>
         <div class="text-xs mt-2" style="color: var(--color-text-muted);">
@@ -524,14 +646,14 @@
           style="background: var(--color-accent-soft); color: var(--color-accent);"
           onclick={close}
         >
-          Done
+          {$tStore('action.done')}
         </button>
         <button
           class="px-4 py-2.5 rounded-xl text-sm"
           style="background: #fee2e2; color: #dc2626;"
           onclick={handleExit}
         >
-          Exit Mim
+          {$tStore('settings.exit')}
         </button>
       </div>
     </div>

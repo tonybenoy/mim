@@ -25,14 +25,25 @@ pub struct FacePipeline {
 
 impl FacePipeline {
     pub async fn new(models_dir: &Path) -> Result<Self> {
-        Self::new_with_progress(models_dir, None).await
+        Self::new_with_options(models_dir, None, None).await
     }
 
     pub async fn new_with_progress(
         models_dir: &Path,
         progress_tx: Option<tokio::sync::watch::Sender<Option<crate::models::DownloadProgress>>>,
     ) -> Result<Self> {
+        Self::new_with_options(models_dir, progress_tx, None).await
+    }
+
+    pub async fn new_with_options(
+        models_dir: &Path,
+        progress_tx: Option<tokio::sync::watch::Sender<Option<crate::models::DownloadProgress>>>,
+        scrfd_model_id: Option<&str>,
+    ) -> Result<Self> {
         let mut manager = ModelManager::new(models_dir.to_path_buf());
+        if let Some(id) = scrfd_model_id {
+            manager = manager.with_scrfd_model(id);
+        }
         if let Some(tx) = progress_tx {
             manager = manager.with_progress(tx);
         }

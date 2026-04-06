@@ -1,11 +1,13 @@
 <script lang="ts">
   import { photos, activeFolder, photosByDate, isLoading } from '$lib/stores/photos';
   import { viewMode, selectedPhotoId, isScanning, selectedGridIndex, selectionMode, selectedPhotoIds } from '$lib/stores/ui';
-  import { getPhotos, toggleFavorite, setRating, trashPhoto } from '$lib/api/photos';
+  import { getPhotos, toggleFavorite, setRating, trashPhoto, restorePhoto } from '$lib/api/photos';
   import { addToAlbum, getAlbums, type Album } from '$lib/api/albums';
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { fly, fade, scale } from 'svelte/transition';
   import { flip } from 'svelte/animate';
+  import { pushAction } from '$lib/undo';
+  import { tStore } from '$lib/i18n';
   import PhotoSkeleton from './PhotoSkeleton.svelte';
   import CalendarView from './CalendarView.svelte';
   import type { Photo } from '$lib/api/photos';
@@ -208,20 +210,65 @@
   async function handleToggleFavorite(e: Event, photo: Photo) {
     e.stopPropagation();
     if (!$activeFolder) return;
-    const newVal = await toggleFavorite($activeFolder.path, photo.id);
+    const folder = $activeFolder.path;
+    const oldVal = photo.is_favorite;
+    const newVal = await toggleFavorite(folder, photo.id);
     photos.update(list => list.map(p => p.id === photo.id ? { ...p, is_favorite: newVal } : p));
+    const photoId = photo.id;
+    pushAction({
+      type: 'toggle_favorite',
+      description: $tStore('undo.toggle_favorite'),
+      forward: async () => {
+        await toggleFavorite(folder, photoId);
+        photos.update(list => list.map(p => p.id === photoId ? { ...p, is_favorite: newVal } : p));
+      },
+      backward: async () => {
+        await toggleFavorite(folder, photoId);
+        photos.update(list => list.map(p => p.id === photoId ? { ...p, is_favorite: oldVal } : p));
+      },
+    });
   }
 
   async function handleSetRating(photo: Photo, rating: number) {
     if (!$activeFolder) return;
-    await setRating($activeFolder.path, photo.id, rating);
+    const folder = $activeFolder.path;
+    const oldRating = photo.rating;
+    await setRating(folder, photo.id, rating);
     photos.update(list => list.map(p => p.id === photo.id ? { ...p, rating } : p));
+    const photoId = photo.id;
+    pushAction({
+      type: 'set_rating',
+      description: $tStore('undo.set_rating'),
+      forward: async () => {
+        await setRating(folder, photoId, rating);
+        photos.update(list => list.map(p => p.id === photoId ? { ...p, rating } : p));
+      },
+      backward: async () => {
+        await setRating(folder, photoId, oldRating);
+        photos.update(list => list.map(p => p.id === photoId ? { ...p, rating: oldRating } : p));
+      },
+    });
   }
 
   async function handleTrash(photo: Photo) {
     if (!$activeFolder) return;
-    await trashPhoto($activeFolder.path, photo.id);
-    photos.update(list => list.filter(p => p.id !== photo.id));
+    const folder = $activeFolder.path;
+    const photoId = photo.id;
+    const photoCopy = { ...photo };
+    await trashPhoto(folder, photoId);
+    photos.update(list => list.filter(p => p.id !== photoId));
+    pushAction({
+      type: 'trash_photo',
+      description: $tStore('undo.trash_photo'),
+      forward: async () => {
+        await trashPhoto(folder, photoId);
+        photos.update(list => list.filter(p => p.id !== photoId));
+      },
+      backward: async () => {
+        await restorePhoto(folder, photoId);
+        photos.update(list => [...list, { ...photoCopy, is_trashed: false }]);
+      },
+    });
   }
 
   function handleGridKeydown(e: KeyboardEvent) {
@@ -279,19 +326,19 @@
   <div class="flex items-center justify-between mb-4" in:fade={{ duration: 200 }}>
     <div class="flex items-center gap-2">
       <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-        {$activeFolder?.label || $activeFolder?.path.split(/[/\\]/).pop() || 'Select a folder'}
+        {$activeFolder?.label || $activeFolder?.path.split(/[/\\]/).pop() || $tStore('grid.select_folder')}
       </h2>
       {#if $photos.length > 0}
         <span class="text-xs px-2 py-0.5 rounded-full"
           style="background: var(--color-accent-soft); color: var(--color-accent);">
-          {$photos.length} photos
+          {$photos.length} {$tStore('grid.photos')}
         </span>
       {/if}
       {#if $isScanning}
         <div class="flex items-center gap-1.5 text-xs animate-pulse-glow px-2 py-0.5 rounded-full"
           style="color: var(--color-accent);">
           <span class="w-1.5 h-1.5 rounded-full" style="background: var(--color-accent);"></span>
-          Scanning...
+          {$tStore('grid.scanning')}
         </div>
       {/if}
     </div>
@@ -355,10 +402,10 @@
         ◈
       </div>
       <p class="text-base font-medium" style="color: var(--color-text-secondary);">
-        {$activeFolder ? 'No photos found' : 'Add a folder to get started'}
+        {$activeFolder ? $tStore('grid.no_photos') : $tStore('grid.add_folder_hint')}
       </p>
       <p class="text-sm" style="color: var(--color-text-muted);">
-        {$activeFolder ? 'Try adding a folder with images' : 'Click "Add Folder" in the sidebar'}
+        {$activeFolder ? $tStore('grid.no_photos_hint') : $tStore('grid.add_folder_sidebar')}
       </p>
     </div>
 
@@ -538,7 +585,7 @@
     >
       <span class="text-xs font-semibold px-2 py-1 rounded-full"
         style="background: var(--color-accent-soft); color: var(--color-accent);">
-        {$selectedPhotoIds.size} selected
+        {$selectedPhotoIds.size} {$tStore('grid.selected')}
       </span>
 
       <div class="flex-1"></div>
@@ -548,7 +595,7 @@
         style="background: var(--color-surface); color: var(--color-text-secondary);"
         onclick={selectAll}
       >
-        Select All
+        {$tStore('grid.select_all')}
       </button>
 
       <button
@@ -557,7 +604,7 @@
         onclick={batchFavorite}
         title="Favorite all selected"
       >
-        &#x2665; Favorite
+        &#x2665; {$tStore('action.favorite')}
       </button>
 
       <div class="relative">
@@ -567,7 +614,7 @@
           onclick={() => showBatchRating = !showBatchRating}
           title="Rate all selected"
         >
-          &#x2605; Rate
+          &#x2605; {$tStore('action.rate')}
         </button>
         {#if showBatchRating}
           <div class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 glass-heavy rounded-xl p-2 flex gap-1"
@@ -591,7 +638,7 @@
         onclick={openAlbumPicker}
         title="Add all to album"
       >
-        &#x25A3; Album
+        &#x25A3; {$tStore('action.album')}
       </button>
 
       <button
@@ -600,7 +647,7 @@
         onclick={batchTrash}
         title="Trash all selected"
       >
-        &#x2715; Trash
+        &#x2715; {$tStore('action.trash')}
       </button>
 
       <button
@@ -608,7 +655,7 @@
         style="color: var(--color-text-muted);"
         onclick={clearSelection}
       >
-        Clear
+        {$tStore('action.clear')}
       </button>
     </div>
   {/if}

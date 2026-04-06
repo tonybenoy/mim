@@ -112,7 +112,18 @@ impl AppState {
                 let load_handle = handle.clone();
                 let _ = load_handle.emit("face-status", "loading-models");
 
-                let pipeline = FacePipeline::new_with_progress(&models_dir, Some(tx)).await?;
+                // Read selected SCRFD model from settings
+                let scrfd_model_id = {
+                    let conn = self.central_db.reader().lock();
+                    conn.query_row(
+                        "SELECT value FROM settings WHERE key = 'scrfd_model'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .unwrap_or_else(|_| "scrfd-10g".to_string())
+                };
+
+                let pipeline = FacePipeline::new_with_options(&models_dir, Some(tx), Some(&scrfd_model_id)).await?;
 
                 let _ = load_handle.emit("face-status", "models-ready");
                 Ok(Arc::new(pipeline))

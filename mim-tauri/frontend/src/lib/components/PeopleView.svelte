@@ -3,6 +3,7 @@
   import { activeFolder, photos } from '$lib/stores/photos';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import { fade, fly, scale } from 'svelte/transition';
+  import FaceTimeline from './FaceTimeline.svelte';
   import type { Photo } from '$lib/api/photos';
 
   let identitiesWithAvatars = $state<IdentityWithAvatar[]>([]);
@@ -13,6 +14,7 @@
   let editingId = $state<string | null>(null);
   let editName = $state('');
   let showMerge = $state(false);
+  let viewTab = $state<'grid' | 'timeline'>('grid');
 
   $effect(() => {
     loadIdentities();
@@ -206,9 +208,29 @@
         </div>
       {/if}
 
-      {#if identityPhotos.length === 0}
+      <!-- View tabs -->
+      <div class="flex gap-1 mb-4 p-1 rounded-xl w-fit" style="background: var(--color-surface);">
+        <button
+          class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style="background: {viewTab === 'grid' ? 'var(--color-bg)' : 'transparent'}; color: {viewTab === 'grid' ? 'var(--color-accent)' : 'var(--color-text-muted)'};"
+          onclick={() => viewTab = 'grid'}
+        >
+          Grid
+        </button>
+        <button
+          class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+          style="background: {viewTab === 'timeline' ? 'var(--color-bg)' : 'transparent'}; color: {viewTab === 'timeline' ? 'var(--color-accent)' : 'var(--color-text-muted)'};"
+          onclick={() => viewTab = 'timeline'}
+        >
+          Timeline
+        </button>
+      </div>
+
+      {#if viewTab === 'timeline'}
+        <FaceTimeline identityName={selectedIdentity.name} photos={identityPhotos} />
+      {:else if identityPhotos.length === 0}
         <div class="text-center py-12" style="color: var(--color-text-muted);">
-          <span class="inline-block animate-spin text-lg">◌</span>
+          <span class="inline-block animate-spin text-lg">&#x25CC;</span>
           <p class="mt-2 text-sm">Loading photos...</p>
         </div>
       {:else}

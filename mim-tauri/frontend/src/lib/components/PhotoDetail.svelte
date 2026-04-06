@@ -5,12 +5,15 @@
   import { fade, fly, scale } from 'svelte/transition';
   import { chatAboutPhoto } from '$lib/api/gemma';
   import { getFacesForPhoto, type Face } from '$lib/api/faces';
+  import { toggleFavorite, setRating, trashPhoto, openVideoExternal } from '$lib/api/photos';
+  import ComparisonView from './ComparisonView.svelte';
   import type { Photo } from '$lib/api/photos';
 
   let chatInput = $state('');
   let chatMessages = $state<{ role: 'user' | 'ai'; text: string }[]>([]);
   let isChatting = $state(false);
   let faces = $state<Face[]>([]);
+  let showCompare = $state(false);
 
   // Load faces when photo changes
   $effect(() => {
@@ -38,6 +41,31 @@
       chatMessages = [...chatMessages, { role: 'ai', text: `Error: ${e}` }];
     }
     isChatting = false;
+  }
+
+  async function handleToggleFavorite() {
+    if (!photo || !$activeFolder) return;
+    const newVal = await toggleFavorite($activeFolder.path, photo.id);
+    photos.update(list => list.map(p => p.id === photo!.id ? { ...p, is_favorite: newVal } : p));
+  }
+
+  async function handleSetRating(rating: number) {
+    if (!photo || !$activeFolder) return;
+    await setRating($activeFolder.path, photo.id, rating);
+    photos.update(list => list.map(p => p.id === photo!.id ? { ...p, rating } : p));
+  }
+
+  async function handleTrash() {
+    if (!photo || !$activeFolder) return;
+    const id = photo.id;
+    await trashPhoto($activeFolder.path, id);
+    photos.update(list => list.filter(p => p.id !== id));
+    close();
+  }
+
+  async function handleOpenExternal() {
+    if (!photo || !$activeFolder) return;
+    await openVideoExternal($activeFolder.path, photo.id);
   }
 
   let photo = $derived($photos.find(p => p.id === $selectedPhotoId) ?? null);
@@ -70,14 +98,27 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
     if (e.key === 'Escape') close();
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'j' || e.key === 'k') {
       const idx = $photos.findIndex(p => p.id === $selectedPhotoId);
       if (idx < 0) return;
-      const next = e.key === 'ArrowRight'
+      const next = (e.key === 'ArrowRight' || e.key === 'j')
         ? Math.min(idx + 1, $photos.length - 1)
         : Math.max(idx - 1, 0);
       selectedPhotoId.set($photos[next].id);
+    }
+    if (e.key === 'f') {
+      e.preventDefault();
+      handleToggleFavorite();
+    }
+    if (e.key >= '1' && e.key <= '5') {
+      e.preventDefault();
+      handleSetRating(parseInt(e.key));
+    }
+    if (e.key === 'Delete') {
+      e.preventDefault();
+      handleTrash();
     }
   }
 </script>
@@ -119,14 +160,70 @@
         style="border-left: 1px solid var(--color-border-glass);"
         in:fly={{ x: 340, duration: 350, delay: 100 }}
       >
-        <!-- Close button -->
-        <button
-          class="neu-button self-end w-8 h-8 rounded-lg flex items-center justify-center text-sm"
-          style="background: var(--color-surface); color: var(--color-text-secondary);"
-          onclick={close}
-        >
-          ✕
-        </button>
+        <!-- Top actions -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <!-- Favorite -->
+            <button
+              class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all"
+              style="background: var(--color-surface); color: {photo.is_favorite ? '#f43f5e' : 'var(--color-text-secondary)'};"
+              onclick={handleToggleFavorite}
+              title="Toggle Favorite (F)"
+            >
+              {photo.is_favorite ? '♥' : '♡'}
+            </button>
+            <!-- Trash -->
+            <button
+              class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm"
+              style="background: var(--color-surface); color: var(--color-danger);"
+              onclick={handleTrash}
+              title="Move to Trash (Del)"
+            >
+              ✕
+            </button>
+            <!-- Open external (for videos) -->
+            {#if photo.media_type === 'video'}
+              <button
+                class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm"
+                style="background: var(--color-surface); color: var(--color-accent);"
+                onclick={handleOpenExternal}
+                title="Open in External Player"
+              >
+                ▶
+              </button>
+            {/if}
+          </div>
+          <button
+            class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm"
+            style="background: var(--color-surface); color: var(--color-text-secondary);"
+            onclick={close}
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Star rating -->
+        <div class="flex items-center gap-1">
+          {#each [1, 2, 3, 4, 5] as star}
+            <button
+              class="text-lg transition-all duration-150 hover:scale-125"
+              style="color: {photo.rating >= star ? '#fbbf24' : 'var(--color-text-muted)'};"
+              onclick={() => handleSetRating(star)}
+              title="Rate {star} ({star})"
+            >
+              {photo.rating >= star ? '★' : '☆'}
+            </button>
+          {/each}
+          {#if photo.rating > 0}
+            <button
+              class="text-[10px] ml-1 px-1.5 py-0.5 rounded"
+              style="color: var(--color-text-muted);"
+              onclick={() => handleSetRating(0)}
+            >
+              Clear
+            </button>
+          {/if}
+        </div>
 
         <!-- Filename -->
         <h3 class="text-base font-semibold break-all" style="color: var(--color-text-primary);">
@@ -263,6 +360,15 @@
           </span>
         </div>
 
+        <!-- Compare button -->
+        <button
+          class="neu-button w-full py-2 rounded-xl text-xs font-medium"
+          style="background: var(--color-surface); color: var(--color-text-secondary);"
+          onclick={() => { showCompare = true; }}
+        >
+          Compare with another photo
+        </button>
+
         <!-- Chat about photo -->
         <div class="mt-auto pt-4" style="border-top: 1px solid var(--color-border-glass);">
           <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--color-text-muted);">
@@ -312,4 +418,8 @@
       </div>
     </div>
   </div>
+
+  {#if showCompare}
+    <ComparisonView photoA={photo} onclose={() => { showCompare = false; }} />
+  {/if}
 {/if}

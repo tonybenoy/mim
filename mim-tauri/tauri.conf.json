@@ -35,6 +35,14 @@
     "fs": {},
     "shell": {
       "open": true
+    },
+    "updater": {
+      "active": true,
+      "dialog": true,
+      "endpoints": [
+        "https://github.com/mim-app/mim/releases/latest/download/latest.json"
+      ],
+      "pubkey": ""
     }
   }
 }

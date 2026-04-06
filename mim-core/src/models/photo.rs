@@ -47,6 +47,14 @@ pub struct Photo {
     pub event_id: Option<String>,
     pub analysis_processed: bool,
 
+    // User metadata
+    pub rating: u8,
+    pub is_favorite: bool,
+
+    // Trash
+    pub is_trashed: bool,
+    pub trashed_at: Option<DateTime<Utc>>,
+
     // Processing state
     pub thumbnail_generated: bool,
     pub faces_processed: bool,
@@ -106,6 +114,10 @@ impl Photo {
             time_of_day: None,
             event_id: None,
             analysis_processed: false,
+            rating: 0,
+            is_favorite: false,
+            is_trashed: false,
+            trashed_at: None,
             thumbnail_generated: false,
             faces_processed: false,
             ai_processed: false,

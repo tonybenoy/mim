@@ -4,16 +4,73 @@
   import { selectedPhotoId } from '$lib/stores/ui';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import { fade, fly, scale } from 'svelte/transition';
-  import type { Photo } from '$lib/api/photos';
+  import { createSmartAlbum, getSmartAlbumPhotos, exportAlbumZip, type Photo } from '$lib/api/photos';
 
   let albums = $state<Album[]>([]);
   let selectedAlbum = $state<Album | null>(null);
   let albumPhotoIds = $state<string[]>([]);
+  let smartAlbumPhotos = $state<Photo[]>([]);
   let isLoading = $state(true);
   let showCreate = $state(false);
   let newName = $state('');
   let editingId = $state<string | null>(null);
   let editName = $state('');
+
+  // Smart album creation
+  let createMode = $state<'choice' | 'manual' | 'smart'>('choice');
+  let smartRules = $state<{ field: string; operator: string; value: string }[]>([
+    { field: 'tags', operator: 'contains', value: '' }
+  ]);
+
+  // Export state
+  let isExporting = $state(false);
+  let exportResult = $state<string | null>(null);
+
+  const ruleFields = [
+    { value: 'tags', label: 'Tags' },
+    { value: 'rating', label: 'Rating' },
+    { value: 'is_favorite', label: 'Favorite' },
+    { value: 'date_range', label: 'Date Range' },
+    { value: 'scene_type', label: 'Scene Type' },
+    { value: 'location', label: 'Location' },
+  ];
+
+  const operatorsByField: Record<string, { value: string; label: string }[]> = {
+    tags: [
+      { value: 'contains', label: 'Contains' },
+      { value: 'equals', label: 'Equals' },
+      { value: 'not_contains', label: 'Does Not Contain' },
+    ],
+    rating: [
+      { value: 'equals', label: 'Equals' },
+      { value: 'greater_than', label: 'Greater Than' },
+      { value: 'less_than', label: 'Less Than' },
+    ],
+    is_favorite: [
+      { value: 'equals', label: 'Is' },
+    ],
+    date_range: [
+      { value: 'after', label: 'After' },
+      { value: 'before', label: 'Before' },
+      { value: 'between', label: 'Between' },
+    ],
+    scene_type: [
+      { value: 'equals', label: 'Equals' },
+      { value: 'contains', label: 'Contains' },
+    ],
+    location: [
+      { value: 'contains', label: 'Contains' },
+      { value: 'equals', label: 'Equals' },
+    ],
+  };
+
+  function addRule() {
+    smartRules = [...smartRules, { field: 'tags', operator: 'contains', value: '' }];
+  }
+
+  function removeRule(index: number) {
+    smartRules = smartRules.filter((_, i) => i !== index);
+  }
 
   $effect(() => {
     if ($activeFolder) {
@@ -39,19 +96,59 @@
       albums = [album, ...albums];
       newName = '';
       showCreate = false;
+      createMode = 'choice';
     } catch (e) {
       console.error('Failed to create album:', e);
     }
   }
 
+  async function handleCreateSmart() {
+    if (!newName.trim() || !$activeFolder) return;
+    const validRules = smartRules.filter(r => r.value.trim() !== '');
+    if (validRules.length === 0) return;
+    try {
+      const rulesJson = JSON.stringify(validRules);
+      const album = await createSmartAlbum($activeFolder.path, newName.trim(), rulesJson);
+      albums = [album, ...albums];
+      newName = '';
+      smartRules = [{ field: 'tags', operator: 'contains', value: '' }];
+      showCreate = false;
+      createMode = 'choice';
+    } catch (e) {
+      console.error('Failed to create smart album:', e);
+    }
+  }
+
   async function selectAlbum(album: Album) {
     selectedAlbum = album;
+    smartAlbumPhotos = [];
     if (!$activeFolder) return;
     try {
-      albumPhotoIds = await getAlbumPhotos($activeFolder.path, album.id);
+      if (album.album_type === 'smart') {
+        smartAlbumPhotos = await getSmartAlbumPhotos($activeFolder.path, album.id);
+        albumPhotoIds = smartAlbumPhotos.map(p => p.id);
+      } else {
+        albumPhotoIds = await getAlbumPhotos($activeFolder.path, album.id);
+      }
     } catch (e) {
       console.error('Failed to load album photos:', e);
     }
+  }
+
+  async function handleExport() {
+    if (!selectedAlbum || !$activeFolder) return;
+    const dest = window.prompt('Export destination path (folder will be created):');
+    if (!dest) return;
+    isExporting = true;
+    exportResult = null;
+    try {
+      const count = await exportAlbumZip($activeFolder.path, selectedAlbum.id, dest);
+      exportResult = `Exported ${count} photos to ${dest}`;
+    } catch (e) {
+      exportResult = `Export failed: ${e}`;
+    }
+    isExporting = false;
+    setTimeout(() => { exportResult = null; }, 5000);
   }
 
   async function handleDelete(album: Album) {
@@ -82,6 +179,9 @@
   }
 
   function getAlbumPhotosData(): Photo[] {
+    if (selectedAlbum?.album_type === 'smart' && smartAlbumPhotos.length > 0) {
+      return smartAlbumPhotos;
+    }
     return albumPhotoIds
       .map(id => $photos.find(p => p.id === id))
       .filter((p): p is Photo => !!p);
@@ -114,6 +214,14 @@
         <div class="flex gap-2">
           <button
             class="text-xs px-3 py-1.5 rounded-lg"
+            style="background: var(--color-accent-soft); color: var(--color-accent);"
+            onclick={handleExport}
+            disabled={isExporting}
+          >
+            {isExporting ? 'Exporting...' : 'Export'}
+          </button>
+          <button
+            class="text-xs px-3 py-1.5 rounded-lg"
             style="background: var(--color-surface); color: var(--color-text-secondary);"
             onclick={() => { editingId = selectedAlbum!.id; editName = selectedAlbum!.name; }}
           >
@@ -143,7 +251,21 @@
         </h2>
       {/if}
 
-      <p class="text-sm mb-4" style="color: var(--color-text-muted);">{albumPhotoIds.length} photos</p>
+      <div class="flex items-center gap-2 mb-4">
+        <p class="text-sm" style="color: var(--color-text-muted);">{albumPhotoIds.length} photos</p>
+        {#if selectedAlbum.album_type === 'smart'}
+          <span class="text-[10px] px-2 py-0.5 rounded-full" style="background: var(--color-accent-soft); color: var(--color-accent);">Smart</span>
+        {/if}
+      </div>
+
+      {#if exportResult}
+        <div class="mb-3 px-3 py-2 rounded-xl text-xs"
+          style="background: {exportResult.startsWith('Export failed') ? '#fee2e2' : 'var(--color-accent-soft)'}; color: {exportResult.startsWith('Export failed') ? '#dc2626' : 'var(--color-accent)'};"
+          in:fly={{ y: -10, duration: 200 }}
+        >
+          {exportResult}
+        </div>
+      {/if}
 
       {#if albumPhotoIds.length === 0}
         <div class="text-center py-12" style="color: var(--color-text-muted);">
@@ -188,17 +310,142 @@
     </div>
 
     {#if showCreate}
-      <div class="flex gap-2 mb-4" in:fly={{ y: -10, duration: 200 }}>
-        <input
-          bind:value={newName}
-          placeholder="Album name"
-          class="flex-1 px-3 py-2 rounded-xl text-sm border-none outline-none"
-          style="background: var(--color-surface); color: var(--color-text-primary);"
-          onkeydown={(e) => e.key === 'Enter' && handleCreate()}
-        />
-        <button class="px-4 py-2 rounded-xl text-sm font-medium"
-          style="background: var(--color-accent-soft); color: var(--color-accent);"
-          onclick={handleCreate}>Create</button>
+      <div class="mb-4 p-4 rounded-xl" style="background: var(--color-surface);" in:fly={{ y: -10, duration: 200 }}>
+        {#if createMode === 'choice'}
+          <p class="text-xs font-medium mb-3" style="color: var(--color-text-muted);">Choose album type:</p>
+          <div class="flex gap-2">
+            <button
+              class="flex-1 py-3 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
+              style="background: var(--color-bg); color: var(--color-text-primary); box-shadow: var(--shadow-neu-soft);"
+              onclick={() => createMode = 'manual'}
+            >
+              <div class="text-lg mb-1">&#x25A3;</div>
+              Manual Album
+            </button>
+            <button
+              class="flex-1 py-3 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
+              style="background: var(--color-bg); color: var(--color-text-primary); box-shadow: var(--shadow-neu-soft);"
+              onclick={() => createMode = 'smart'}
+            >
+              <div class="text-lg mb-1">&#x2726;</div>
+              Smart Album
+            </button>
+          </div>
+          <button
+            class="w-full mt-2 text-xs py-1"
+            style="color: var(--color-text-muted);"
+            onclick={() => { showCreate = false; createMode = 'choice'; }}
+          >Cancel</button>
+
+        {:else if createMode === 'manual'}
+          <div class="flex gap-2">
+            <input
+              bind:value={newName}
+              placeholder="Album name"
+              class="flex-1 px-3 py-2 rounded-xl text-sm border-none outline-none"
+              style="background: var(--color-bg); color: var(--color-text-primary);"
+              onkeydown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+            <button class="px-4 py-2 rounded-xl text-sm font-medium"
+              style="background: var(--color-accent-soft); color: var(--color-accent);"
+              onclick={handleCreate}>Create</button>
+            <button class="px-3 py-2 rounded-xl text-sm"
+              style="color: var(--color-text-muted);"
+              onclick={() => { showCreate = false; createMode = 'choice'; }}>Cancel</button>
+          </div>
+
+        {:else if createMode === 'smart'}
+          <div class="space-y-3">
+            <input
+              bind:value={newName}
+              placeholder="Smart album name"
+              class="w-full px-3 py-2 rounded-xl text-sm border-none outline-none"
+              style="background: var(--color-bg); color: var(--color-text-primary);"
+            />
+
+            <div class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">
+              Rules
+            </div>
+
+            {#each smartRules as rule, i}
+              <div class="flex gap-2 items-center" in:fly={{ y: -10, duration: 200 }}>
+                <select
+                  bind:value={rule.field}
+                  class="px-2 py-1.5 rounded-lg text-xs border-none outline-none"
+                  style="background: var(--color-bg); color: var(--color-text-primary);"
+                  onchange={() => { rule.operator = (operatorsByField[rule.field]?.[0]?.value || 'contains'); }}
+                >
+                  {#each ruleFields as f}
+                    <option value={f.value}>{f.label}</option>
+                  {/each}
+                </select>
+
+                <select
+                  bind:value={rule.operator}
+                  class="px-2 py-1.5 rounded-lg text-xs border-none outline-none"
+                  style="background: var(--color-bg); color: var(--color-text-primary);"
+                >
+                  {#each (operatorsByField[rule.field] || []) as op}
+                    <option value={op.value}>{op.label}</option>
+                  {/each}
+                </select>
+
+                {#if rule.field === 'is_favorite'}
+                  <select
+                    bind:value={rule.value}
+                    class="flex-1 px-2 py-1.5 rounded-lg text-xs border-none outline-none"
+                    style="background: var(--color-bg); color: var(--color-text-primary);"
+                  >
+                    <option value="true">Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                {:else if rule.field === 'rating'}
+                  <select
+                    bind:value={rule.value}
+                    class="flex-1 px-2 py-1.5 rounded-lg text-xs border-none outline-none"
+                    style="background: var(--color-bg); color: var(--color-text-primary);"
+                  >
+                    {#each [1, 2, 3, 4, 5] as r}
+                      <option value={String(r)}>{'&#9733;'.repeat(r)}</option>
+                    {/each}
+                  </select>
+                {:else}
+                  <input
+                    bind:value={rule.value}
+                    placeholder="Value"
+                    class="flex-1 px-2 py-1.5 rounded-lg text-xs border-none outline-none"
+                    style="background: var(--color-bg); color: var(--color-text-primary);"
+                  />
+                {/if}
+
+                {#if smartRules.length > 1}
+                  <button
+                    class="text-xs px-2 py-1 rounded-lg"
+                    style="color: #dc2626;"
+                    onclick={() => removeRule(i)}
+                  >&#x2715;</button>
+                {/if}
+              </div>
+            {/each}
+
+            <button
+              class="text-xs px-3 py-1.5 rounded-lg"
+              style="background: var(--color-bg); color: var(--color-text-secondary);"
+              onclick={addRule}
+            >
+              + Add Rule
+            </button>
+
+            <div class="flex gap-2 pt-2" style="border-top: 1px solid var(--color-border-glass);">
+              <button class="flex-1 px-4 py-2 rounded-xl text-sm font-medium"
+                style="background: var(--color-accent-soft); color: var(--color-accent);"
+                onclick={handleCreateSmart}>Create Smart Album</button>
+              <button class="px-3 py-2 rounded-xl text-sm"
+                style="color: var(--color-text-muted);"
+                onclick={() => { showCreate = false; createMode = 'choice'; smartRules = [{ field: 'tags', operator: 'contains', value: '' }]; }}>Cancel</button>
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -224,9 +471,13 @@
             in:fly={{ y: 20, duration: 300, delay: i * 50 }}
             onclick={() => selectAlbum(album)}
           >
-            <div class="aspect-video w-full flex items-center justify-center text-4xl"
+            <div class="aspect-video w-full flex items-center justify-center text-4xl relative"
               style="background: var(--color-accent-soft); color: var(--color-accent);">
-              ▣
+              {album.album_type === 'smart' ? '&#x2726;' : '&#x25A3;'}
+              {#if album.album_type === 'smart'}
+                <span class="absolute top-2 right-2 text-[9px] px-1.5 py-0.5 rounded-full"
+                  style="background: var(--color-accent); color: #fff;">Smart</span>
+              {/if}
             </div>
             <div class="p-3">
               <p class="text-sm font-medium truncate" style="color: var(--color-text-primary);">{album.name}</p>

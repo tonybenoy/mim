@@ -110,6 +110,21 @@ fn main() {
             commands::add_sync_folder,
             commands::watch_folder,
             commands::unwatch_folder,
+            commands::toggle_favorite,
+            commands::set_rating,
+            commands::trash_photo,
+            commands::restore_photo,
+            commands::empty_trash,
+            commands::get_trashed,
+            commands::open_video_external,
+            commands::share_photo_os,
+            commands::backup_database,
+            commands::restore_database,
+            commands::get_storage_stats,
+            commands::get_memories,
+            commands::create_smart_album,
+            commands::get_smart_album_photos,
+            commands::export_album_zip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mim");

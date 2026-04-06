@@ -37,9 +37,9 @@
   <div
     class="absolute top-0 rounded-full tab-indicator"
     style="
-      width: calc(20% - 24px);
+      width: calc({100 / sections.length}% - 24px);
       height: 3px;
-      left: calc({$indicatorX / 5}% + 12px);
+      left: calc({$indicatorX / sections.length}% + 12px);
       background: var(--color-accent);
       transform: scaleX({$indicatorScale});
     "

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { searchQuery, sidebarOpen, currentSection } from '$lib/stores/ui';
+  import { searchQuery, sidebarOpen, currentSection, themeMode, type ThemeMode } from '$lib/stores/ui';
   import { fly, fade } from 'svelte/transition';
   import Settings from './Settings.svelte';
 
@@ -10,6 +10,16 @@
     searchFocused = true;
     currentSection.set('search');
   }
+
+  function cycleTheme() {
+    themeMode.update(m => {
+      const order: ThemeMode[] = ['auto', 'light', 'dark'];
+      const idx = order.indexOf(m);
+      return order[(idx + 1) % order.length];
+    });
+  }
+
+  const themeIcon: Record<ThemeMode, string> = { auto: '◐', light: '☀', dark: '☾' };
 </script>
 
 <header
@@ -63,6 +73,16 @@
       {/if}
     </div>
   </div>
+
+  <!-- Theme toggle -->
+  <button
+    class="neu-button w-9 h-9 flex items-center justify-center rounded-xl shrink-0 transition-all duration-300 hover:scale-110"
+    style="background: var(--color-surface); color: var(--color-text-secondary); font-size: 16px;"
+    onclick={cycleTheme}
+    title="Theme: {$themeMode}"
+  >
+    {themeIcon[$themeMode]}
+  </button>
 
   <!-- Settings -->
   <button

@@ -23,6 +23,10 @@ export interface Photo {
   altitude: number | null;
   location_name: string | null;
   ai_description: string | null;
+  rating: number;
+  is_favorite: boolean;
+  is_trashed: boolean;
+  trashed_at: string | null;
   thumbnail_generated: boolean;
   faces_processed: boolean;
   ai_processed: boolean;
@@ -77,4 +81,98 @@ export async function getPhotoCount(folderPath: string): Promise<number> {
 
 export async function getThumbnailUrl(folderPath: string, contentHash: string, size?: string): Promise<string> {
   return invoke('get_thumbnail_url', { folderPath, contentHash, size });
+}
+
+// Favorites & Rating
+export async function toggleFavorite(folderPath: string, photoId: string): Promise<boolean> {
+  return invoke('toggle_favorite', { folderPath, photoId });
+}
+
+export async function setRating(folderPath: string, photoId: string, rating: number): Promise<void> {
+  return invoke('set_rating', { folderPath, photoId, rating });
+}
+
+// Trash
+export async function trashPhoto(folderPath: string, photoId: string): Promise<void> {
+  return invoke('trash_photo', { folderPath, photoId });
+}
+
+export async function restorePhoto(folderPath: string, photoId: string): Promise<void> {
+  return invoke('restore_photo', { folderPath, photoId });
+}
+
+export async function emptyTrash(folderPath: string): Promise<number> {
+  return invoke('empty_trash', { folderPath });
+}
+
+export async function getTrashed(folderPath: string): Promise<Photo[]> {
+  return invoke('get_trashed', { folderPath });
+}
+
+// Video external
+export async function openVideoExternal(folderPath: string, photoId: string): Promise<void> {
+  return invoke('open_video_external', { folderPath, photoId });
+}
+
+// Share
+export async function sharePhotoOs(folderPath: string, photoId: string): Promise<void> {
+  return invoke('share_photo_os', { folderPath, photoId });
+}
+
+// Backup
+export async function backupDatabase(folderPath: string, destPath: string): Promise<void> {
+  return invoke('backup_database', { folderPath, destPath });
+}
+
+export async function restoreDatabase(folderPath: string, sourcePath: string): Promise<void> {
+  return invoke('restore_database', { folderPath, sourcePath });
+}
+
+// Storage stats
+export interface StorageStats {
+  total_photos: number;
+  total_size: number;
+  thumbnail_size: number;
+  face_crops_size: number;
+  db_size: number;
+}
+
+export async function getStorageStats(folderPath: string): Promise<StorageStats> {
+  return invoke('get_storage_stats', { folderPath });
+}
+
+// Memories
+export async function getMemories(folderPath: string): Promise<Photo[]> {
+  return invoke('get_memories', { folderPath });
+}
+
+// Smart Albums
+export async function createSmartAlbum(folderPath: string, name: string, rulesJson: string): Promise<any> {
+  return invoke('create_smart_album', { folderPath, name, rulesJson });
+}
+
+export async function getSmartAlbumPhotos(folderPath: string, albumId: string): Promise<Photo[]> {
+  return invoke('get_smart_album_photos', { folderPath, albumId });
+}
+
+// Export
+export async function exportAlbumZip(folderPath: string, albumId: string, destPath: string): Promise<number> {
+  return invoke('export_album_zip', { folderPath, albumId, destPath });
+}
+
+// Locked Folders
+export async function lockFolder(folderPath: string, password: string): Promise<void> {
+  return invoke('lock_folder', { folderPath, password });
+}
+
+export async function unlockFolder(folderPath: string, password: string): Promise<void> {
+  return invoke('unlock_folder', { folderPath, password });
+}
+
+export async function verifyFolderPassword(folderPath: string, password: string): Promise<boolean> {
+  return invoke('verify_folder_password', { folderPath, password });
+}
+
+export async function openLockedFolder(folderPath: string, password: string): Promise<void> {
+  return invoke('open_locked_folder', { folderPath, password });
 }

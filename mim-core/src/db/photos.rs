@@ -14,6 +14,7 @@ pub const SELECT_COLUMNS: &str = "
     aesthetic_score, blur_score, scene_type, dominant_colors,
     perceptual_hash, is_screenshot, is_nsfw, ocr_text,
     weather, time_of_day, event_id, analysis_processed,
+    rating, is_favorite, is_trashed, trashed_at,
     thumbnail_generated, faces_processed, ai_processed,
     file_modified_at, created_at, updated_at
 ";
@@ -62,16 +63,22 @@ pub fn photo_from_row(row: &Row<'_>) -> rusqlite::Result<Photo> {
         time_of_day: row.get(32)?,
         event_id: row.get(33)?,
         analysis_processed: row.get(34)?,
-        thumbnail_generated: row.get(35)?,
-        faces_processed: row.get(36)?,
-        ai_processed: row.get(37)?,
-        file_modified_at: row.get::<_, String>(38)?
+        rating: row.get::<_, u8>(35).unwrap_or(0),
+        is_favorite: row.get(36).unwrap_or(false),
+        is_trashed: row.get(37).unwrap_or(false),
+        trashed_at: row.get::<_, Option<String>>(38)?
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc)),
+        thumbnail_generated: row.get(39)?,
+        faces_processed: row.get(40)?,
+        ai_processed: row.get(41)?,
+        file_modified_at: row.get::<_, String>(42)?
             .parse::<chrono::DateTime<chrono::Utc>>()
             .unwrap_or_else(|_| chrono::Utc::now()),
-        created_at: row.get::<_, String>(39)?
+        created_at: row.get::<_, String>(43)?
             .parse::<chrono::DateTime<chrono::Utc>>()
             .unwrap_or_else(|_| chrono::Utc::now()),
-        updated_at: row.get::<_, String>(40)?
+        updated_at: row.get::<_, String>(44)?
             .parse::<chrono::DateTime<chrono::Utc>>()
             .unwrap_or_else(|_| chrono::Utc::now()),
     })
@@ -93,6 +100,7 @@ impl PhotosDb {
                 aesthetic_score, blur_score, scene_type, dominant_colors,
                 perceptual_hash, is_screenshot, is_nsfw, ocr_text,
                 weather, time_of_day, event_id, analysis_processed,
+                rating, is_favorite, is_trashed, trashed_at,
                 thumbnail_generated, faces_processed, ai_processed,
                 file_modified_at, created_at, updated_at
             ) VALUES (
@@ -105,8 +113,9 @@ impl PhotosDb {
                 ?24, ?25, ?26, ?27,
                 ?28, ?29, ?30, ?31,
                 ?32, ?33, ?34, ?35,
-                ?36, ?37, ?38,
-                ?39, ?40, ?41
+                ?36, ?37, ?38, ?39,
+                ?40, ?41, ?42,
+                ?43, ?44, ?45
             )",
             params![
                 photo.id,
@@ -144,6 +153,10 @@ impl PhotosDb {
                 photo.time_of_day,
                 photo.event_id,
                 photo.analysis_processed,
+                photo.rating,
+                photo.is_favorite,
+                photo.is_trashed,
+                photo.trashed_at.map(|t| t.to_rfc3339()),
                 photo.thumbnail_generated,
                 photo.faces_processed,
                 photo.ai_processed,
@@ -158,7 +171,7 @@ impl PhotosDb {
     pub fn list(conn: &Arc<Mutex<Connection>>, limit: u32, offset: u32) -> Result<Vec<Photo>> {
         let conn = conn.lock();
         let sql = format!(
-            "SELECT {} FROM photos ORDER BY COALESCE(taken_at, created_at) DESC LIMIT ?1 OFFSET ?2",
+            "SELECT {} FROM photos WHERE is_trashed = 0 ORDER BY COALESCE(taken_at, created_at) DESC LIMIT ?1 OFFSET ?2",
             SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -181,7 +194,7 @@ impl PhotosDb {
 
     pub fn count(conn: &Arc<Mutex<Connection>>) -> Result<u32> {
         let conn = conn.lock();
-        let count: u32 = conn.query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
+        let count: u32 = conn.query_row("SELECT COUNT(*) FROM photos WHERE is_trashed = 0", [], |row| row.get(0))?;
         Ok(count)
     }
 
@@ -194,7 +207,7 @@ impl PhotosDb {
     pub fn list_unprocessed_faces(conn: &Arc<Mutex<Connection>>) -> Result<Vec<Photo>> {
         let conn = conn.lock();
         let sql = format!(
-            "SELECT {} FROM photos WHERE faces_processed = 0 AND media_type = 'photo' ORDER BY COALESCE(taken_at, created_at) DESC",
+            "SELECT {} FROM photos WHERE faces_processed = 0 AND media_type = 'photo' AND is_trashed = 0 ORDER BY COALESCE(taken_at, created_at) DESC",
             SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -206,7 +219,7 @@ impl PhotosDb {
     pub fn list_unprocessed_ai(conn: &Arc<Mutex<Connection>>) -> Result<Vec<Photo>> {
         let conn = conn.lock();
         let sql = format!(
-            "SELECT {} FROM photos WHERE ai_processed = 0 AND media_type = 'photo' ORDER BY COALESCE(taken_at, created_at) DESC",
+            "SELECT {} FROM photos WHERE ai_processed = 0 AND media_type = 'photo' AND is_trashed = 0 ORDER BY COALESCE(taken_at, created_at) DESC",
             SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -218,7 +231,7 @@ impl PhotosDb {
     pub fn list_unprocessed_analysis(conn: &Arc<Mutex<Connection>>) -> Result<Vec<Photo>> {
         let conn = conn.lock();
         let sql = format!(
-            "SELECT {} FROM photos WHERE analysis_processed = 0 AND media_type = 'photo' ORDER BY COALESCE(taken_at, created_at) DESC",
+            "SELECT {} FROM photos WHERE analysis_processed = 0 AND media_type = 'photo' AND is_trashed = 0 ORDER BY COALESCE(taken_at, created_at) DESC",
             SELECT_COLUMNS
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -334,6 +347,173 @@ impl PhotosDb {
             params![chrono::Utc::now().to_rfc3339(), photo_id],
         )?;
         Ok(())
+    }
+
+    // ── Favorites & Rating ──────────────────────────────────
+
+    pub fn toggle_favorite(conn: &Arc<Mutex<Connection>>, photo_id: &str) -> Result<bool> {
+        let conn = conn.lock();
+        conn.execute(
+            "UPDATE photos SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END, updated_at = ?1 WHERE id = ?2",
+            params![chrono::Utc::now().to_rfc3339(), photo_id],
+        )?;
+        let val: bool = conn.query_row(
+            "SELECT is_favorite FROM photos WHERE id = ?1",
+            params![photo_id],
+            |row| row.get(0),
+        )?;
+        Ok(val)
+    }
+
+    pub fn set_rating(conn: &Arc<Mutex<Connection>>, photo_id: &str, rating: u8) -> Result<()> {
+        let conn = conn.lock();
+        conn.execute(
+            "UPDATE photos SET rating = ?1, updated_at = ?2 WHERE id = ?3",
+            params![rating.min(5), chrono::Utc::now().to_rfc3339(), photo_id],
+        )?;
+        Ok(())
+    }
+
+    // ── Trash ───────────────────────────────────────────────
+
+    pub fn trash_photo(conn: &Arc<Mutex<Connection>>, photo_id: &str) -> Result<()> {
+        let conn = conn.lock();
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE photos SET is_trashed = 1, trashed_at = ?1, updated_at = ?1 WHERE id = ?2",
+            params![now, photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn restore_photo(conn: &Arc<Mutex<Connection>>, photo_id: &str) -> Result<()> {
+        let conn = conn.lock();
+        conn.execute(
+            "UPDATE photos SET is_trashed = 0, trashed_at = NULL, updated_at = ?1 WHERE id = ?2",
+            params![chrono::Utc::now().to_rfc3339(), photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn empty_trash(conn: &Arc<Mutex<Connection>>) -> Result<u32> {
+        let conn = conn.lock();
+        let count: u32 = conn.query_row(
+            "SELECT COUNT(*) FROM photos WHERE is_trashed = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        conn.execute("DELETE FROM photos WHERE is_trashed = 1", [])?;
+        Ok(count)
+    }
+
+    pub fn list_trashed(conn: &Arc<Mutex<Connection>>) -> Result<Vec<Photo>> {
+        let conn = conn.lock();
+        let sql = format!(
+            "SELECT {} FROM photos WHERE is_trashed = 1 ORDER BY trashed_at DESC",
+            SELECT_COLUMNS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let photos = stmt.query_map([], photo_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(photos)
+    }
+
+    // ── Memories (On This Day) ──────────────────────────────
+
+    pub fn get_memories(conn: &Arc<Mutex<Connection>>) -> Result<Vec<Photo>> {
+        let conn = conn.lock();
+        let now = chrono::Utc::now();
+        let month = now.format("%m").to_string();
+        let day = now.format("%d").to_string();
+        let this_year = now.format("%Y").to_string();
+        let sql = format!(
+            "SELECT {} FROM photos
+             WHERE is_trashed = 0
+               AND taken_at IS NOT NULL
+               AND strftime('%m', taken_at) = ?1
+               AND strftime('%d', taken_at) = ?2
+               AND strftime('%Y', taken_at) != ?3
+             ORDER BY taken_at ASC",
+            SELECT_COLUMNS
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let photos = stmt.query_map(params![month, day, this_year], photo_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(photos)
+    }
+
+    // ── Storage Stats ───────────────────────────────────────
+
+    pub fn get_total_photo_size(conn: &Arc<Mutex<Connection>>) -> Result<u64> {
+        let conn = conn.lock();
+        let size: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(file_size), 0) FROM photos WHERE is_trashed = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(size as u64)
+    }
+
+    pub fn count_all(conn: &Arc<Mutex<Connection>>) -> Result<u32> {
+        let conn = conn.lock();
+        let count: u32 = conn.query_row("SELECT COUNT(*) FROM photos", [], |row| row.get(0))?;
+        Ok(count)
+    }
+
+    // ── Smart Albums ────────────────────────────────────────
+
+    pub fn query_smart_album(conn: &Arc<Mutex<Connection>>, rules_json: &str) -> Result<Vec<Photo>> {
+        let conn = conn.lock();
+        let rules: serde_json::Value = serde_json::from_str(rules_json)
+            .map_err(|e| crate::Error::Other(format!("Invalid rules JSON: {}", e)))?;
+
+        let mut conditions = vec!["is_trashed = 0".to_string()];
+        let mut params_list: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut param_idx = 1;
+
+        if let Some(min_rating) = rules.get("min_rating").and_then(|v| v.as_i64()) {
+            conditions.push(format!("rating >= ?{}", param_idx));
+            params_list.push(Box::new(min_rating as i32));
+            param_idx += 1;
+        }
+
+        if let Some(true) = rules.get("favorites_only").and_then(|v| v.as_bool()) {
+            conditions.push("is_favorite = 1".to_string());
+        }
+
+        if let Some(media) = rules.get("media_type").and_then(|v| v.as_str()) {
+            conditions.push(format!("media_type = ?{}", param_idx));
+            params_list.push(Box::new(media.to_string()));
+            param_idx += 1;
+        }
+
+        // Tag-based filtering via subquery
+        if let Some(tags) = rules.get("tags").and_then(|v| v.as_array()) {
+            for tag in tags {
+                if let Some(tag_name) = tag.as_str() {
+                    conditions.push(format!(
+                        "id IN (SELECT pt.photo_id FROM photo_tags pt JOIN tags t ON pt.tag_id = t.id WHERE t.name LIKE ?{})",
+                        param_idx
+                    ));
+                    params_list.push(Box::new(format!("%{}%", tag_name)));
+                    param_idx += 1;
+                }
+            }
+        }
+
+        let _ = param_idx; // suppress unused warning
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT {} FROM photos WHERE {} ORDER BY COALESCE(taken_at, created_at) DESC LIMIT 1000",
+            SELECT_COLUMNS, where_clause
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params_list.iter().map(|p| p.as_ref()).collect();
+        let photos = stmt.query_map(param_refs.as_slice(), photo_from_row)?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(photos)
     }
 }
 

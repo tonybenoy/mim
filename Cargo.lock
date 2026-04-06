@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "mim-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "argon2",
  "blake3",
@@ -2871,6 +2871,7 @@ dependencies = [
  "kamadak-exif",
  "notify",
  "parking_lot",
+ "password-hash",
  "rayon",
  "reqwest 0.12.28",
  "rusqlite",
@@ -2886,7 +2887,7 @@ dependencies = [
 
 [[package]]
 name = "mim-ml"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "bytemuck",
  "chrono",
@@ -2911,12 +2912,13 @@ dependencies = [
 
 [[package]]
 name = "mim-tauri"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "directories",
  "mim-core",
  "mim-ml",
+ "open",
  "parking_lot",
  "rayon",
  "reqwest 0.12.28",
@@ -2932,6 +2934,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
+ "walkdir",
  "warp",
 ]
 

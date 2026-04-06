@@ -9,6 +9,10 @@ pub fn run_sidecar_migrations(conn: &mut Connection) -> Result<()> {
     ")?;
 
     conn.execute_batch(SIDECAR_SCHEMA)?;
+
+    // Incremental migrations for existing databases
+    run_sidecar_incremental(conn)?;
+
     Ok(())
 }
 
@@ -20,6 +24,31 @@ pub fn run_central_migrations(conn: &mut Connection) -> Result<()> {
     ")?;
 
     conn.execute_batch(CENTRAL_SCHEMA)?;
+    Ok(())
+}
+
+/// Incremental migrations for columns added after initial schema.
+fn run_sidecar_incremental(conn: &mut Connection) -> Result<()> {
+    // Check which columns exist and add missing ones
+    let columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(photos)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let migrations: &[(&str, &str)] = &[
+        ("rating", "ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"),
+        ("is_favorite", "ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0"),
+        ("is_trashed", "ALTER TABLE photos ADD COLUMN is_trashed INTEGER NOT NULL DEFAULT 0"),
+        ("trashed_at", "ALTER TABLE photos ADD COLUMN trashed_at TEXT"),
+    ];
+
+    for (col, sql) in migrations {
+        if !columns.iter().any(|c| c == col) {
+            conn.execute_batch(sql)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -60,6 +89,14 @@ CREATE TABLE IF NOT EXISTS photos (
     faces_processed     INTEGER NOT NULL DEFAULT 0,
     ai_processed        INTEGER NOT NULL DEFAULT 0,
 
+    -- User metadata
+    rating            INTEGER NOT NULL DEFAULT 0,
+    is_favorite       INTEGER NOT NULL DEFAULT 0,
+
+    -- Trash
+    is_trashed        INTEGER NOT NULL DEFAULT 0,
+    trashed_at        TEXT,
+
     -- Analysis
     aesthetic_score    REAL,
     blur_score        REAL,
@@ -87,6 +124,9 @@ CREATE INDEX IF NOT EXISTS idx_photos_processing ON photos(faces_processed, ai_p
 CREATE INDEX IF NOT EXISTS idx_photos_perceptual_hash ON photos(perceptual_hash);
 CREATE INDEX IF NOT EXISTS idx_photos_event_id ON photos(event_id);
 CREATE INDEX IF NOT EXISTS idx_photos_analysis ON photos(analysis_processed);
+CREATE INDEX IF NOT EXISTS idx_photos_favorite ON photos(is_favorite);
+CREATE INDEX IF NOT EXISTS idx_photos_rating ON photos(rating);
+CREATE INDEX IF NOT EXISTS idx_photos_trashed ON photos(is_trashed);
 
 CREATE TABLE IF NOT EXISTS events (
     id          TEXT PRIMARY KEY,

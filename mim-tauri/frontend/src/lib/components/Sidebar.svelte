@@ -1,7 +1,7 @@
 <script lang="ts">
   import { sidebarOpen, currentSection, mlStatus, mlStatusText, mlProgress } from '$lib/stores/ui';
   import { folders, activeFolder } from '$lib/stores/photos';
-  import { addFolder, scanFolder, getFolders, getPhotos, getPhotoCount } from '$lib/api/photos';
+  import { addFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder } from '$lib/api/photos';
   import { processFaces, clusterFaces, onFaceProcessingProgress } from '$lib/api/faces';
   import { tagPhotos, onTaggingProgress, onGemmaStatus } from '$lib/api/gemma';
   import { isScanning } from '$lib/stores/ui';
@@ -11,6 +11,17 @@
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import type { FolderSource } from '$lib/api/photos';
+  import PasswordPrompt from './PasswordPrompt.svelte';
+
+  // Locked folder state
+  let lockedFolders = $state<Set<string>>(new Set());
+  let unlockedFolders = $state<Set<string>>(new Set());
+  let showPasswordPrompt = $state(false);
+  let pendingLockedFolder = $state<FolderSource | null>(null);
+  let passwordError = $state('');
+
+  // Lock/unlock menu
+  let showLockMenu = $state<string | null>(null);
 
   // Per-folder status tracking
   let folderStatus = $state<Record<string, {
@@ -176,7 +187,72 @@
   }
 
   function selectFolder(folder: FolderSource) {
+    if (lockedFolders.has(folder.path) && !unlockedFolders.has(folder.path)) {
+      pendingLockedFolder = folder;
+      passwordError = '';
+      showPasswordPrompt = true;
+      return;
+    }
     activeFolder.set(folder);
+  }
+
+  async function handlePasswordSubmit(password: string) {
+    if (!pendingLockedFolder) return;
+    try {
+      const valid = await verifyFolderPassword(pendingLockedFolder.path, password);
+      if (valid) {
+        await openLockedFolder(pendingLockedFolder.path, password);
+        unlockedFolders = new Set([...unlockedFolders, pendingLockedFolder.path]);
+        activeFolder.set(pendingLockedFolder);
+        showPasswordPrompt = false;
+        pendingLockedFolder = null;
+      } else {
+        passwordError = 'Incorrect password';
+      }
+    } catch (e) {
+      passwordError = `${e}`;
+    }
+  }
+
+  function handlePasswordCancel() {
+    showPasswordPrompt = false;
+    pendingLockedFolder = null;
+    passwordError = '';
+  }
+
+  async function handleLockFolder(folder: FolderSource) {
+    const password = window.prompt('Set a password for this folder:');
+    if (!password) return;
+    const confirm = window.prompt('Confirm password:');
+    if (password !== confirm) {
+      window.alert('Passwords do not match');
+      return;
+    }
+    try {
+      await lockFolder(folder.path, password);
+      lockedFolders = new Set([...lockedFolders, folder.path]);
+      showLockMenu = null;
+    } catch (e) {
+      console.error('Failed to lock folder:', e);
+    }
+  }
+
+  async function handleUnlockFolder(folder: FolderSource) {
+    const password = window.prompt('Enter password to remove lock:');
+    if (!password) return;
+    try {
+      await unlockFolder(folder.path, password);
+      const next = new Set(lockedFolders);
+      next.delete(folder.path);
+      lockedFolders = next;
+      const nextU = new Set(unlockedFolders);
+      nextU.delete(folder.path);
+      unlockedFolders = nextU;
+      showLockMenu = null;
+    } catch (e) {
+      console.error('Failed to unlock folder:', e);
+      window.alert('Incorrect password or failed to unlock');
+    }
   }
 
   // Load folders on mount
@@ -194,7 +270,7 @@
     style="top: 56px; bottom: 64px; width: 240px; border-right: 1px solid var(--color-border-glass);"
     transition:fly={{ x: -240, duration: 300 }}
   >
-    {#if $currentSection === 'library' || $currentSection === 'chat' || $currentSection === 'search'}
+    {#if $currentSection === 'library' || $currentSection === 'chat' || $currentSection === 'search' || $currentSection === 'trash' || $currentSection === 'map' || $currentSection === 'memories'}
       <div class="flex items-center justify-between px-2 py-1">
         <div class="text-[11px] font-semibold uppercase tracking-widest"
           style="color: var(--color-text-muted);">
@@ -216,18 +292,58 @@
           in:fly={{ x: -20, duration: 200, delay: i * 40 }}
         >
           <!-- Folder row -->
-          <button
-            class="flex items-center gap-2 px-3 py-2 w-full text-left text-sm rounded-xl transition-all duration-200"
-            style="color: {$activeFolder?.id === folder.id ? 'var(--color-accent)' : 'var(--color-text-primary)'};"
-            onclick={() => selectFolder(folder)}
-          >
-            <span class="text-xs">{$activeFolder?.id === folder.id ? '◆' : '◇'}</span>
-            <span class="truncate flex-1">{folder.label || folder.path.split('/').pop()}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full"
-              style="background: var(--color-surface); color: var(--color-text-muted);">
-              {folderCounts[folder.path] ?? '—'}
-            </span>
-          </button>
+          <div class="flex items-center">
+            <button
+              class="flex items-center gap-2 px-3 py-2 flex-1 text-left text-sm rounded-xl transition-all duration-200"
+              style="color: {$activeFolder?.id === folder.id ? 'var(--color-accent)' : 'var(--color-text-primary)'};"
+              onclick={() => selectFolder(folder)}
+            >
+              <span class="text-xs">{$activeFolder?.id === folder.id ? '&#x25C6;' : '&#x25C7;'}</span>
+              {#if lockedFolders.has(folder.path) && !unlockedFolders.has(folder.path)}
+                <span class="text-xs">&#x1F512;</span>
+              {/if}
+              <span class="truncate flex-1">{folder.label || folder.path.split('/').pop()}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full"
+                style="background: var(--color-surface); color: var(--color-text-muted);">
+                {folderCounts[folder.path] ?? '&#x2014;'}
+              </span>
+            </button>
+            <!-- Lock/unlock toggle -->
+            <div class="relative">
+              <button
+                class="text-[10px] px-1 py-1 rounded-lg transition-all hover:scale-110"
+                style="color: var(--color-text-muted);"
+                onclick={() => showLockMenu = showLockMenu === folder.path ? null : folder.path}
+                title="Lock settings"
+              >
+                &#x22EE;
+              </button>
+              {#if showLockMenu === folder.path}
+                <div
+                  class="absolute right-0 top-full mt-1 z-50 glass-heavy rounded-lg p-1 min-w-[120px]"
+                  style="box-shadow: 0 8px 24px rgba(0,0,0,0.2);"
+                >
+                  {#if lockedFolders.has(folder.path)}
+                    <button
+                      class="w-full text-left text-[11px] px-2 py-1.5 rounded-md transition-colors hover:opacity-80"
+                      style="color: var(--color-text-secondary);"
+                      onclick={() => handleUnlockFolder(folder)}
+                    >
+                      Remove Lock
+                    </button>
+                  {:else}
+                    <button
+                      class="w-full text-left text-[11px] px-2 py-1.5 rounded-md transition-colors hover:opacity-80"
+                      style="color: var(--color-text-secondary);"
+                      onclick={() => handleLockFolder(folder)}
+                    >
+                      Lock Folder
+                    </button>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          </div>
 
           <!-- Per-folder status -->
           {#if folderStatus[folder.path]}
@@ -312,6 +428,35 @@
         </div>
       {/if}
 
+      <!-- Extra navigation links -->
+      <div class="mt-auto pt-3" style="border-top: 1px solid var(--color-border-glass);">
+        <div class="text-[10px] font-semibold uppercase tracking-widest px-3 py-1"
+          style="color: var(--color-text-muted);">
+          More
+        </div>
+        <button
+          class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
+          style="color: {$currentSection === 'trash' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'trash' ? 'var(--color-accent-soft)' : 'transparent'};"
+          onclick={() => currentSection.set('trash')}
+        >
+          <span>&#x2298;</span> Trash
+        </button>
+        <button
+          class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
+          style="color: {$currentSection === 'map' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'map' ? 'var(--color-accent-soft)' : 'transparent'};"
+          onclick={() => currentSection.set('map')}
+        >
+          <span>&#x25CE;</span> Places
+        </button>
+        <button
+          class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all"
+          style="color: {$currentSection === 'memories' ? 'var(--color-accent)' : 'var(--color-text-secondary)'}; background: {$currentSection === 'memories' ? 'var(--color-accent-soft)' : 'transparent'};"
+          onclick={() => currentSection.set('memories')}
+        >
+          <span>&#x274B;</span> Memories
+        </button>
+      </div>
+
     {:else if $currentSection === 'people'}
       <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
         style="color: var(--color-text-muted);">
@@ -326,6 +471,24 @@
         style="color: var(--color-text-muted);">
         Albums
       </div>
+
+    {:else if $currentSection === 'trash'}
+      <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
+        style="color: var(--color-text-muted);">
+        Trash
+      </div>
+      <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
+        Deleted photos appear here. Restore or permanently delete them.
+      </div>
     {/if}
   </aside>
+{/if}
+
+{#if showPasswordPrompt && pendingLockedFolder}
+  <PasswordPrompt
+    title="Unlock Folder"
+    folderName={pendingLockedFolder.label || pendingLockedFolder.path.split('/').pop() || ''}
+    onsubmit={handlePasswordSubmit}
+    oncancel={handlePasswordCancel}
+  />
 {/if}

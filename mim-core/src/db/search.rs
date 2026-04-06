@@ -26,10 +26,11 @@ impl SearchDb {
              FROM photos p
              LEFT JOIN photo_tags pt ON p.id = pt.photo_id
              LEFT JOIN tags t ON pt.tag_id = t.id
-             WHERE p.filename LIKE ?1
+             WHERE p.is_trashed = 0
+               AND (p.filename LIKE ?1
                 OR p.ai_description LIKE ?1
                 OR p.location_name LIKE ?1
-                OR t.name LIKE ?1
+                OR t.name LIKE ?1)
              ORDER BY COALESCE(p.taken_at, p.created_at) DESC
              LIMIT ?2",
             prefixed_cols

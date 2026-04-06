@@ -4,9 +4,18 @@
   import BottomBar from '$lib/components/BottomBar.svelte';
   import Sidebar from '$lib/components/Sidebar.svelte';
   import PhotoDetail from '$lib/components/PhotoDetail.svelte';
-  import { sidebarOpen } from '$lib/stores/ui';
+  import { sidebarOpen, themeMode } from '$lib/stores/ui';
 
   let { children } = $props();
+
+  // Apply theme class to document root
+  $effect(() => {
+    const mode = $themeMode;
+    const root = document.documentElement;
+    root.classList.remove('dark', 'light');
+    if (mode === 'dark') root.classList.add('dark');
+    else if (mode === 'light') root.classList.add('light');
+  });
 </script>
 
 <div class="h-screen w-screen overflow-hidden flex flex-col" style="background: var(--color-bg);">

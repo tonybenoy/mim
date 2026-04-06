@@ -51,7 +51,7 @@
 /* ─── Dark Mode — deep ocean palette ───────────────────── */
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light) {
     --color-bg: #0c0a14;
     --color-surface: #171326;
     --color-surface-elevated: #1e1a30;
@@ -70,6 +70,28 @@
     --shadow-neu-pressed: inset 3px 3px 6px rgba(4, 3, 8, 0.5), inset -3px -3px 6px rgba(30, 26, 48, 0.3);
     --shadow-neu-soft: 2px 2px 5px rgba(4, 3, 8, 0.4), -2px -2px 5px rgba(30, 26, 48, 0.25);
   }
+}
+
+/* ─── Forced Dark Mode via class ──────────────────────── */
+
+:root.dark {
+  --color-bg: #0c0a14;
+  --color-surface: #171326;
+  --color-surface-elevated: #1e1a30;
+  --color-surface-glass: rgba(23, 19, 38, 0.65);
+  --color-surface-glass-hover: rgba(30, 26, 48, 0.8);
+  --color-border-glass: rgba(255, 255, 255, 0.06);
+  --color-border-subtle: rgba(255, 255, 255, 0.04);
+  --color-text-primary: #f0eef5;
+  --color-text-secondary: #a09bb0;
+  --color-text-muted: #5c5672;
+  --color-accent: #f0943a;
+  --color-accent-hover: #f7a855;
+  --color-accent-soft: rgba(240, 148, 58, 0.1);
+  --color-accent-glow: rgba(240, 148, 58, 0.2);
+  --shadow-neu-raised: 5px 5px 10px rgba(4, 3, 8, 0.6), -5px -5px 10px rgba(30, 26, 48, 0.4);
+  --shadow-neu-pressed: inset 3px 3px 6px rgba(4, 3, 8, 0.5), inset -3px -3px 6px rgba(30, 26, 48, 0.3);
+  --shadow-neu-soft: 2px 2px 5px rgba(4, 3, 8, 0.4), -2px -2px 5px rgba(30, 26, 48, 0.25);
 }
 
 /* ─── Base ──────────────────────────────────────────────── */

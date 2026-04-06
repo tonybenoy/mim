@@ -1,5 +1,40 @@
 # Mim User Guide
 
+## Building from Source
+
+### Prerequisites
+- **Rust** (stable, edition 2024) — [rustup.rs](https://rustup.rs)
+- **Node.js 18+** — [nodejs.org](https://nodejs.org)
+- **System dependencies:**
+  - **Arch Linux:** `sudo pacman -S webkit2gtk-4.1 clang cmake`
+  - **Ubuntu/Debian:** `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev clang cmake`
+  - **Windows:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/), then `choco install cmake llvm nodejs strawberryperl`
+  - **macOS:** `xcode-select --install && brew install cmake`
+
+### Build Steps
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/tonybenoy/mim.git
+cd mim
+
+# 2. Install frontend dependencies (REQUIRED before first build)
+cd mim-tauri/frontend
+npm install
+cd ../..
+
+# 3. Run in development mode
+cargo tauri dev
+
+# 4. Or build for production
+cargo tauri build
+
+# 5. With CUDA GPU acceleration (optional, needs CUDA toolkit)
+cargo tauri build --features mim-ml/cuda
+```
+
+**Important:** You must run `npm install` in `mim-tauri/frontend/` before your first build. The Tauri build process runs `npm run build` which requires `vite` and other dependencies to be installed.
+
 ## Getting Started
 
 ### Adding Your First Folder

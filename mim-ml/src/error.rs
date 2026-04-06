@@ -18,7 +18,7 @@ pub enum MlError {
     Io(#[from] std::io::Error),
 
     #[error("core error: {0}")]
-    Core(#[from] mim_core::Error),
+    Core(String),
 
     #[error("preprocessing error: {0}")]
     Preprocessing(String),
@@ -31,6 +31,12 @@ pub enum MlError {
 }
 
 pub type Result<T> = std::result::Result<T, MlError>;
+
+impl From<mim_core::Error> for MlError {
+    fn from(e: mim_core::Error) -> Self {
+        MlError::Core(e.to_string())
+    }
+}
 
 impl From<MlError> for mim_core::Error {
     fn from(e: MlError) -> Self {

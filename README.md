@@ -64,25 +64,35 @@ Named after Mimir, the Norse god of wisdom and memory. Mim runs entirely on your
   # Ubuntu/Debian
   sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev clang cmake
 
+  # Windows (run in admin PowerShell)
+  choco install cmake llvm strawberryperl
+
   # macOS
-  xcode-select --install
+  xcode-select --install && brew install cmake
   ```
 
 ### Build & Run
 
 ```bash
-git clone https://github.com/yourname/mim.git
+git clone https://github.com/tonybenoy/mim.git
 cd mim
 
-# Install frontend dependencies
-cd mim-tauri/frontend && npm install && cd ../..
+# Install frontend dependencies (REQUIRED before first build)
+cd mim-tauri/frontend
+npm install
+cd ../..
 
 # Run in development mode
 cargo tauri dev
 
 # Build for production
 cargo tauri build
+
+# Build with CUDA GPU acceleration (optional)
+cargo tauri build --features mim-ml/cuda
 ```
+
+> **Note:** You must run `npm install` in `mim-tauri/frontend/` before building. Without it, `vite` won't be found and the build will fail.
 
 ### First Use
 

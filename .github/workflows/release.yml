@@ -86,7 +86,7 @@ jobs:
 
       - name: Install Windows deps
         if: runner.os == 'Windows'
-        run: choco install cmake llvm -y
+        run: choco install cmake llvm strawberryperl -y
 
       - name: Install macOS deps
         if: runner.os == 'macOS'
@@ -120,7 +120,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2"
+        run: npm install -g @tauri-apps/cli@latest
 
       - name: Build (CUDA)
         if: matrix.cuda

@@ -24,6 +24,28 @@ pub fn run_central_migrations(conn: &mut Connection) -> Result<()> {
     ")?;
 
     conn.execute_batch(CENTRAL_SCHEMA)?;
+    run_central_incremental(conn)?;
+    Ok(())
+}
+
+fn run_central_incremental(conn: &mut Connection) -> Result<()> {
+    let columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(folder_sources)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let migrations: &[(&str, &str)] = &[
+        ("is_locked", "ALTER TABLE folder_sources ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0"),
+        ("password_hash", "ALTER TABLE folder_sources ADD COLUMN password_hash TEXT"),
+    ];
+
+    for (col, sql) in migrations {
+        if !columns.iter().any(|c| c == col) {
+            conn.execute_batch(sql)?;
+        }
+    }
+
     Ok(())
 }
 
@@ -37,10 +59,24 @@ fn run_sidecar_incremental(conn: &mut Connection) -> Result<()> {
         .collect();
 
     let migrations: &[(&str, &str)] = &[
+        // User metadata
         ("rating", "ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"),
         ("is_favorite", "ALTER TABLE photos ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0"),
         ("is_trashed", "ALTER TABLE photos ADD COLUMN is_trashed INTEGER NOT NULL DEFAULT 0"),
         ("trashed_at", "ALTER TABLE photos ADD COLUMN trashed_at TEXT"),
+        // Analysis columns
+        ("aesthetic_score", "ALTER TABLE photos ADD COLUMN aesthetic_score REAL"),
+        ("blur_score", "ALTER TABLE photos ADD COLUMN blur_score REAL"),
+        ("scene_type", "ALTER TABLE photos ADD COLUMN scene_type TEXT"),
+        ("dominant_colors", "ALTER TABLE photos ADD COLUMN dominant_colors TEXT"),
+        ("perceptual_hash", "ALTER TABLE photos ADD COLUMN perceptual_hash TEXT"),
+        ("is_screenshot", "ALTER TABLE photos ADD COLUMN is_screenshot INTEGER DEFAULT 0"),
+        ("is_nsfw", "ALTER TABLE photos ADD COLUMN is_nsfw INTEGER DEFAULT 0"),
+        ("ocr_text", "ALTER TABLE photos ADD COLUMN ocr_text TEXT"),
+        ("weather", "ALTER TABLE photos ADD COLUMN weather TEXT"),
+        ("time_of_day", "ALTER TABLE photos ADD COLUMN time_of_day TEXT"),
+        ("event_id", "ALTER TABLE photos ADD COLUMN event_id TEXT"),
+        ("analysis_processed", "ALTER TABLE photos ADD COLUMN analysis_processed INTEGER NOT NULL DEFAULT 0"),
     ];
 
     for (col, sql) in migrations {

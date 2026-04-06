@@ -265,7 +265,7 @@
   <div class="flex items-center justify-between mb-4" in:fade={{ duration: 200 }}>
     <div class="flex items-center gap-2">
       <h2 class="text-lg font-semibold" style="color: var(--color-text-primary);">
-        {$activeFolder?.label || $activeFolder?.path.split('/').pop() || 'Select a folder'}
+        {$activeFolder?.label || $activeFolder?.path.split(/[/\\]/).pop() || 'Select a folder'}
       </h2>
       {#if $photos.length > 0}
         <span class="text-xs px-2 py-0.5 rounded-full"

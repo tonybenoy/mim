@@ -176,9 +176,9 @@
     globalProcessing = true;
     globalText = 'Processing all folders...';
     for (const folder of $folders) {
-      globalText = `Scanning ${folder.path.split('/').pop()}...`;
+      globalText = `Scanning ${folder.path.split(/[/\\]/).pop()}...`;
       await handleScanFolder(folder);
-      globalText = `Detecting faces in ${folder.path.split('/').pop()}...`;
+      globalText = `Detecting faces in ${folder.path.split(/[/\\]/).pop()}...`;
       await handleProcessFolder(folder);
     }
     globalProcessing = false;
@@ -302,7 +302,7 @@
               {#if lockedFolders.has(folder.path) && !unlockedFolders.has(folder.path)}
                 <span class="text-xs">&#x1F512;</span>
               {/if}
-              <span class="truncate flex-1">{folder.label || folder.path.split('/').pop()}</span>
+              <span class="truncate flex-1">{folder.label || folder.path.split(/[/\\]/).pop()}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded-full"
                 style="background: var(--color-surface); color: var(--color-text-muted);">
                 {folderCounts[folder.path] ?? '&#x2014;'}
@@ -487,7 +487,7 @@
 {#if showPasswordPrompt && pendingLockedFolder}
   <PasswordPrompt
     title="Unlock Folder"
-    folderName={pendingLockedFolder.label || pendingLockedFolder.path.split('/').pop() || ''}
+    folderName={pendingLockedFolder.label || pendingLockedFolder.path.split(/[/\\]/).pop() || ''}
     onsubmit={handlePasswordSubmit}
     oncancel={handlePasswordCancel}
   />

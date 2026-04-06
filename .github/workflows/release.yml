@@ -41,7 +41,7 @@ jobs:
           fi
 
   build:
-    name: Build (${{ matrix.target }})
+    name: Build (${{ matrix.label }})
     needs: version-check
     if: needs.version-check.outputs.changed == 'true'
     strategy:
@@ -51,9 +51,11 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             label: linux-amd64
+
           - target: aarch64-apple-darwin
             os: macos-latest
             label: macos-arm64
+
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             label: windows-amd64
@@ -69,26 +71,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf clang cmake \
-            libssl-dev libsqlcipher-dev
+            librsvg2-dev patchelf clang cmake
+
+      - name: Install Windows deps
+        if: runner.os == 'Windows'
+        run: |
+          choco install cmake llvm -y
 
       - name: Install macOS deps
         if: runner.os == 'macOS'
         run: |
           brew install cmake
-
-      - name: Install Windows deps
-        if: runner.os == 'Windows'
-        run: |
-          choco install cmake llvm openssl -y
-
-      - name: Set OpenSSL env (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          echo "OPENSSL_DIR=C:/Program Files/OpenSSL-Win64" >> "$GITHUB_ENV"
-          echo "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL-Win64/lib" >> "$GITHUB_ENV"
-          echo "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL-Win64/include" >> "$GITHUB_ENV"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -135,9 +128,9 @@ jobs:
         working-directory: mim-tauri
         run: cargo tauri build --target ${{ matrix.target }}
         env:
-          MACOSX_DEPLOYMENT_TARGET: "10.15"
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS: ensure C++ std::filesystem is available
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+          CMAKE_OSX_DEPLOYMENT_TARGET: "11.0"
 
       - name: Collect artifacts (Linux)
         if: runner.os == 'Linux'

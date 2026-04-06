@@ -1,6 +1,6 @@
 {
   "productName": "Mim",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "com.mim.app",
   "build": {
     "frontendDist": "frontend/build",

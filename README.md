@@ -64,8 +64,11 @@ Named after Mimir, the Norse god of wisdom and memory. Mim runs entirely on your
   # Ubuntu/Debian
   sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev clang cmake
 
-  # Windows (run in admin PowerShell)
-  choco install cmake llvm strawberryperl
+  # Windows (PowerShell)
+  winget install Kitware.CMake LLVM.LLVM StrawberryPerl.StrawberryPerl
+
+  # Windows with CUDA GPU support (optional)
+  winget install Nvidia.CUDA
 
   # macOS
   xcode-select --install && brew install cmake

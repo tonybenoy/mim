@@ -2,13 +2,27 @@
   import { fade, fly } from 'svelte/transition';
   import { invoke } from '@tauri-apps/api/core';
   import { getStorageStats, type StorageStats } from '$lib/api/photos';
+  import { open as openDialog } from '@tauri-apps/plugin-dialog';
+
+  interface ModelInfo {
+    name: string;
+    filename: string;
+    size: number;
+    exists: boolean;
+    purpose: string;
+    is_custom: boolean;
+  }
+
+  let modelsList = $state<ModelInfo[]>([]);
+  let modelsDir = $state('');
+  let modelsLoading = $state(false);
   import { setupSync, getSyncStatus, stopSync, addSyncFolder, type SyncStatus } from '$lib/api/sync';
   import { activeFolder } from '$lib/stores/photos';
   import { open } from '@tauri-apps/plugin-dialog';
 
   let { show = $bindable(false) } = $props();
 
-  let gemmaModel = $state('gemma-4-E4B');
+  let gemmaModel = $state('gemma-3-4b');
   let scrfdModel = $state('scrfd-10g');
   let useGpu = $state(false);
   let thumbnailSize = $state(256);
@@ -25,11 +39,79 @@
   let syncFolderLabel = $state('');
 
   $effect(() => {
-    if (show && $activeFolder) {
-      loadStorageStats();
+    if (show) {
+      loadModels();
+      loadSettings();
+      if ($activeFolder) {
+        loadStorageStats();
+      }
       loadSyncStatus();
     }
   });
+
+  async function loadSettings() {
+    try {
+      const saved = await invoke('get_setting', { key: 'gemma_model' }) as string | null;
+      if (saved) gemmaModel = saved;
+      const savedScrfd = await invoke('get_setting', { key: 'scrfd_model' }) as string | null;
+      if (savedScrfd) scrfdModel = savedScrfd;
+      const savedGpu = await invoke('get_setting', { key: 'use_gpu' }) as string | null;
+      if (savedGpu) useGpu = savedGpu === 'true';
+    } catch {}
+  }
+
+  async function saveSetting(key: string, value: string) {
+    try {
+      await invoke('set_setting', { key, value });
+    } catch (e) {
+      console.error('Failed to save setting:', e);
+    }
+  }
+
+  // Auto-save when settings change
+  $effect(() => { saveSetting('gemma_model', gemmaModel); });
+  $effect(() => { saveSetting('scrfd_model', scrfdModel); });
+  $effect(() => { saveSetting('use_gpu', String(useGpu)); });
+
+  async function loadModels() {
+    modelsLoading = true;
+    try {
+      modelsList = await invoke('list_models');
+      modelsDir = await invoke('get_models_dir');
+    } catch (e) {
+      console.error('Failed to load models:', e);
+    }
+    modelsLoading = false;
+  }
+
+  async function handleDeleteModel(filename: string, name: string) {
+    if (!window.confirm(`Delete model "${name}"?\n\nYou can re-download it later, but it may take time.`)) return;
+    try {
+      await invoke('delete_model', { filename });
+      await loadModels();
+    } catch (e) {
+      console.error('Failed to delete model:', e);
+    }
+  }
+
+  async function handleImportModel() {
+    let selected: string | null = null;
+    try {
+      const result = await openDialog({
+        multiple: false,
+        filters: [{ name: 'Models', extensions: ['onnx', 'gguf'] }],
+      });
+      if (result && typeof result === 'string') selected = result;
+    } catch {}
+    if (!selected) selected = window.prompt('Path to .onnx or .gguf model file:');
+    if (!selected) return;
+    try {
+      await invoke('import_custom_model', { sourcePath: selected });
+      await loadModels();
+    } catch (e) {
+      console.error('Failed to import model:', e);
+    }
+  }
 
   async function loadStorageStats() {
     if (!$activeFolder) return;
@@ -107,9 +189,8 @@
   }
 
   const gemmaOptions = [
-    { value: 'gemma-4-E4B', label: 'Gemma 4 E4B (4.98 GB) — Best vision + OCR', desc: 'Recommended for image understanding' },
-    { value: 'gemma-4-E2B', label: 'Gemma 4 E2B (1.5 GB) — Lightweight', desc: 'Faster, less accurate' },
-    { value: 'gemma-3-4b', label: 'Gemma 3 4B (2.49 GB) — Legacy', desc: 'Older model, stable' },
+    { value: 'gemma-3-4b', label: 'Gemma 3 4B (2.49 GB) — Recommended', desc: 'Best balance of quality and speed, full vision support' },
+    { value: 'gemma-3-1b', label: 'Gemma 3 1B (0.9 GB) — Lightweight', desc: 'Faster, uses less RAM, lower quality' },
   ];
 
   const scrfdOptions = [
@@ -357,18 +438,82 @@
         </div>
       </div>
 
+      <!-- Model Management (Advanced) -->
+      <div class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[11px] uppercase tracking-wider font-semibold" style="color: var(--color-text-muted);">
+            Models (Advanced)
+          </div>
+          <button
+            class="text-[10px] px-2 py-1 rounded-lg transition-all hover:scale-105"
+            style="background: var(--color-accent-soft); color: var(--color-accent);"
+            onclick={handleImportModel}
+          >
+            + Import Custom
+          </button>
+        </div>
+
+        {#if modelsLoading}
+          <div class="flex items-center justify-center py-4">
+            <span class="inline-block animate-spin text-sm" style="color: var(--color-text-muted);">&#x25CC;</span>
+          </div>
+        {:else}
+          <div class="space-y-2">
+            {#each modelsList as model}
+              <div class="flex items-center justify-between p-3 rounded-xl transition-all" style="background: var(--color-surface);">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <div class="text-xs font-medium truncate" style="color: var(--color-text-primary);">{model.name}</div>
+                    {#if model.is_custom}
+                      <span class="text-[9px] px-1.5 py-0.5 rounded-full shrink-0" style="background: var(--color-accent-soft); color: var(--color-accent);">Custom</span>
+                    {/if}
+                  </div>
+                  <div class="text-[10px] truncate" style="color: var(--color-text-muted);">
+                    {model.purpose} — {model.exists ? formatSize(model.size) : 'Not downloaded'}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1 shrink-0 ml-2">
+                  {#if model.exists}
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: var(--color-success-soft); color: var(--color-success);">Ready</span>
+                    <button
+                      class="text-[10px] px-2 py-1 rounded-lg transition-all hover:scale-105"
+                      style="color: var(--color-danger);"
+                      onclick={() => handleDeleteModel(model.filename, model.name)}
+                      title="Delete model to free space. Re-downloads on next use."
+                    >
+                      Delete
+                    </button>
+                  {:else}
+                    <span class="text-[9px] px-1.5 py-0.5 rounded-full" style="background: var(--color-surface); color: var(--color-text-muted);">Pending</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+
+          {#if modelsDir}
+            <div class="text-[10px] mt-2 p-2 rounded-lg" style="background: var(--color-bg); color: var(--color-text-muted);">
+              <strong>Path:</strong> {modelsDir}<br/>
+              Models auto-download on first use. Import custom .onnx/.gguf models to override defaults.
+            </div>
+          {/if}
+        {/if}
+      </div>
+
       <!-- About -->
       <div class="mb-6 p-4 rounded-xl" style="background: var(--color-surface);">
         <div class="text-[11px] uppercase tracking-wider font-semibold mb-2" style="color: var(--color-text-muted);">
           About
         </div>
-        <div class="text-sm font-semibold" style="color: var(--color-text-primary);">Mim</div>
-        <div class="text-xs" style="color: var(--color-text-muted);">
-          Photo Library Manager v0.1.0
-        </div>
+        <div class="text-sm font-semibold" style="color: var(--color-text-primary);">Mim v1.0</div>
         <div class="text-xs mt-2" style="color: var(--color-text-muted);">
           Named after Mimir, the Norse god of wisdom and memory.
           Face detection, AI tagging, and photo chat — all running locally.
+        </div>
+        <div class="text-[10px] mt-2 p-2 rounded-lg" style="background: var(--color-bg); color: var(--color-text-muted);">
+          <strong>Logs:</strong> ~/.local/share/mim/logs/ (Linux) or %APPDATA%/mim/logs/ (Windows)<br/>
+          <strong>Database:</strong> ~/.local/share/mim/mim_central.db<br/>
+          <strong>License:</strong> MIT
         </div>
       </div>
 

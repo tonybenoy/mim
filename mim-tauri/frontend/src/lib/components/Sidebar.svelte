@@ -1,9 +1,10 @@
 <script lang="ts">
   import { sidebarOpen, currentSection, mlStatus, mlStatusText, mlProgress } from '$lib/stores/ui';
   import { folders, activeFolder } from '$lib/stores/photos';
-  import { addFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder } from '$lib/api/photos';
+  import { addFolder, removeFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder } from '$lib/api/photos';
   import { processFaces, clusterFaces, onFaceProcessingProgress } from '$lib/api/faces';
   import { tagPhotos, onTaggingProgress, onGemmaStatus } from '$lib/api/gemma';
+  import { analyzeFolder } from '$lib/api/analysis';
   import { isScanning } from '$lib/stores/ui';
   import { photos as photosStore } from '$lib/stores/photos';
   import { fly } from 'svelte/transition';
@@ -22,6 +23,12 @@
 
   // Lock/unlock menu
   let showLockMenu = $state<string | null>(null);
+
+  function handleGlobalClick(e: MouseEvent) {
+    if (showLockMenu && !(e.target as HTMLElement)?.closest('[data-lock-menu]')) {
+      showLockMenu = null;
+    }
+  }
 
   // Per-folder status tracking
   let folderStatus = $state<Record<string, {
@@ -48,7 +55,12 @@
     listen<any>('face-status', (event) => {
       if (event.payload === 'downloading-models') {
         mlStatus.set('downloading');
-        mlStatusText.set('Downloading face models...');
+        mlStatusText.set('Downloading face models (first run only)...');
+      } else if (event.payload === 'loading-models') {
+        mlStatus.set('downloading');
+        mlStatusText.set('Loading face models into memory...');
+      } else if (event.payload === 'models-ready') {
+        mlStatusText.set('Models loaded, starting detection...');
       } else if (event.payload === 'detecting') {
         mlStatus.set('detecting');
         mlStatusText.set('Detecting faces...');
@@ -77,9 +89,14 @@
     }).then(fn => unlistens.push(fn));
 
     onGemmaStatus((status) => {
-      if (status === 'loading-model') {
+      if (status === 'downloading-models') {
         globalProcessing = true;
-        globalText = 'Loading Gemma model...';
+        globalText = 'Downloading AI models (first run only)...';
+      } else if (status === 'loading-model') {
+        globalProcessing = true;
+        globalText = 'Loading Gemma into memory (may take 30-60s)...';
+      } else if (status === 'model-loaded') {
+        globalText = 'AI model ready, starting tagging...';
       } else if (status === 'tagging') {
         globalText = 'AI tagging in progress...';
       }
@@ -174,13 +191,17 @@
 
   async function handleProcessAll() {
     globalProcessing = true;
-    globalText = 'Processing all folders...';
+
+    // Scan all folders in parallel (I/O bound, safe to parallelize)
+    globalText = 'Scanning all folders...';
+    await Promise.allSettled($folders.map(f => handleScanFolder(f)));
+
+    // Run AI sequentially per folder (GPU/memory bound)
     for (const folder of $folders) {
-      globalText = `Scanning ${folder.path.split(/[/\\]/).pop()}...`;
-      await handleScanFolder(folder);
       globalText = `Detecting faces in ${folder.path.split(/[/\\]/).pop()}...`;
       await handleProcessFolder(folder);
     }
+
     globalProcessing = false;
     globalText = 'All done!';
     setTimeout(() => { globalText = ''; }, 3000);
@@ -255,6 +276,32 @@
     }
   }
 
+  async function handleAnalyzeFolder(folder: FolderSource) {
+    folderStatus = { ...folderStatus, [folder.path]: { stage: 'analyzing', text: 'Analyzing photos...' } };
+    try {
+      const result = await analyzeFolder(folder.path);
+      folderStatus = { ...folderStatus, [folder.path]: { stage: 'done', text: `Analyzed ${result.processed} photos` } };
+      setTimeout(() => { const s = { ...folderStatus }; delete s[folder.path]; folderStatus = s; }, 3000);
+    } catch (e) {
+      folderStatus = { ...folderStatus, [folder.path]: { stage: 'error', text: `${e}` } };
+    }
+  }
+
+  async function handleRemoveFolder(folder: FolderSource) {
+    if (!window.confirm(`Remove "${folder.label || folder.path.split(/[/\\]/).pop()}" from Mim?\n\nThis will NOT delete your photos — only remove it from Mim's library.`)) return;
+    try {
+      await removeFolder(folder.id);
+      folders.update(f => f.filter(fo => fo.id !== folder.id));
+      if ($activeFolder?.id === folder.id) {
+        const remaining = $folders;
+        activeFolder.set(remaining.length > 0 ? remaining[0] : null);
+      }
+      showLockMenu = null;
+    } catch (e) {
+      console.error('Failed to remove folder:', e);
+    }
+  }
+
   // Load folders on mount
   $effect(() => {
     getFolders().then(f => {
@@ -263,6 +310,8 @@
     }).catch(() => {});
   });
 </script>
+
+<svelte:window onclick={handleGlobalClick} />
 
 {#if $sidebarOpen}
   <aside
@@ -309,7 +358,7 @@
               </span>
             </button>
             <!-- Lock/unlock toggle -->
-            <div class="relative">
+            <div class="relative" data-lock-menu>
               <button
                 class="text-[10px] px-1 py-1 rounded-lg transition-all hover:scale-110"
                 style="color: var(--color-text-muted);"
@@ -320,8 +369,8 @@
               </button>
               {#if showLockMenu === folder.path}
                 <div
-                  class="absolute right-0 top-full mt-1 z-50 glass-heavy rounded-lg p-1 min-w-[120px]"
-                  style="box-shadow: 0 8px 24px rgba(0,0,0,0.2);"
+                  class="absolute right-0 top-full mt-1 z-50 rounded-xl p-1.5 min-w-[140px]"
+                  style="background: var(--color-surface-elevated); box-shadow: 0 8px 24px rgba(0,0,0,0.3); border: 1px solid var(--color-border-glass);"
                 >
                   {#if lockedFolders.has(folder.path)}
                     <button
@@ -340,6 +389,13 @@
                       Lock Folder
                     </button>
                   {/if}
+                  <button
+                    class="w-full text-left text-[11px] px-2 py-1.5 rounded-md transition-colors hover:opacity-80"
+                    style="color: var(--color-danger);"
+                    onclick={() => handleRemoveFolder(folder)}
+                  >
+                    Remove from Mim
+                  </button>
                 </div>
               {/if}
             </div>
@@ -349,8 +405,9 @@
           {#if folderStatus[folder.path]}
             {@const status = folderStatus[folder.path]}
             <div class="px-3 pb-2">
-              <div class="flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1.5"
-                style="background: var(--color-surface); color: {status.stage === 'error' ? 'var(--color-danger)' : status.stage === 'done' ? 'var(--color-success)' : 'var(--color-accent)'};">
+              <div class="flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1.5 cursor-default"
+                style="background: var(--color-surface); color: {status.stage === 'error' ? 'var(--color-danger)' : status.stage === 'done' ? 'var(--color-success)' : 'var(--color-accent)'};"
+                title={status.text}>
                 {#if status.stage !== 'done' && status.stage !== 'error'}
                   <span class="animate-spin">◌</span>
                 {/if}
@@ -388,6 +445,15 @@
                 title="AI tag photos"
               >
                 ✦ Tag
+              </button>
+              <button
+                class="flex-1 text-[10px] px-2 py-1.5 rounded-lg transition-all hover:scale-105"
+                style="background: var(--color-surface); color: var(--color-text-secondary);"
+                onclick={() => handleAnalyzeFolder(folder)}
+                disabled={!!folderStatus[folder.path]}
+                title="Analyze photos (colors, blur, events)"
+              >
+                ◎ Analyze
               </button>
             </div>
           {/if}

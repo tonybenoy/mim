@@ -70,26 +70,67 @@ impl ModelManager {
 
         let tmp_path = dest.with_extension("tmp");
 
-        let response = reqwest::get(url)
+        // Check for existing partial download to resume
+        let existing_size = tokio::fs::metadata(&tmp_path)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let client = reqwest::Client::new();
+        let mut request = client.get(url);
+
+        // Request range if we have a partial file
+        if existing_size > 0 {
+            info!("Resuming download from {} bytes", existing_size);
+            request = request.header("Range", format!("bytes={}-", existing_size));
+        }
+
+        let response = request
+            .send()
             .await
             .map_err(|e| MlError::DownloadFailed(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(MlError::DownloadFailed(format!(
-                "HTTP {}",
-                response.status()
-            )));
+        let status = response.status();
+        if !status.is_success() && status != reqwest::StatusCode::PARTIAL_CONTENT {
+            return Err(MlError::DownloadFailed(format!("HTTP {}", status)));
         }
 
-        let total_size = response.content_length().unwrap_or(0);
-        info!("Download size: {:.1} MB", total_size as f64 / 1_048_576.0);
+        let is_resumed = status == reqwest::StatusCode::PARTIAL_CONTENT;
+        let total_size = if is_resumed {
+            // Content-Range header gives total: "bytes 1000-9999/10000"
+            response
+                .headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.rsplit('/').next())
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(existing_size + response.content_length().unwrap_or(0))
+        } else {
+            response.content_length().unwrap_or(0)
+        };
 
-        let mut file = tokio::fs::File::create(&tmp_path)
-            .await
-            .map_err(|e| MlError::DownloadFailed(format!("create file: {e}")))?;
+        info!(
+            "Download {}: {:.1} MB total{}",
+            filename,
+            total_size as f64 / 1_048_576.0,
+            if is_resumed { format!(", resuming from {:.1} MB", existing_size as f64 / 1_048_576.0) } else { String::new() }
+        );
+
+        // Open file: append if resuming, create if fresh
+        let mut file = if is_resumed {
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(&tmp_path)
+                .await
+                .map_err(|e| MlError::DownloadFailed(format!("open for resume: {e}")))?
+        } else {
+            tokio::fs::File::create(&tmp_path)
+                .await
+                .map_err(|e| MlError::DownloadFailed(format!("create file: {e}")))?
+        };
 
         let mut stream = response.bytes_stream();
-        let mut downloaded: u64 = 0;
+        let mut downloaded: u64 = if is_resumed { existing_size } else { 0 };
         let mut last_logged_pct = 0u64;
 
         while let Some(chunk) = stream.next().await {

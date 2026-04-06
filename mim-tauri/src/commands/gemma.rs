@@ -19,12 +19,14 @@ pub async fn tag_photos(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<TaggingProgress, String> {
-    let _ = app_handle.emit("gemma-status", "loading-model");
+    let _ = app_handle.emit("gemma-status", "downloading-models");
 
     let gemma = state
         .get_or_init_gemma_with_handle(&app_handle)
         .await
         .map_err(|e| e.to_string())?;
+
+    let _ = app_handle.emit("gemma-status", "model-loaded");
 
     let _ = app_handle.emit("gemma-status", "tagging");
 

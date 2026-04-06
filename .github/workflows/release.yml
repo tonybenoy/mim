@@ -86,7 +86,9 @@ jobs:
 
       - name: Install Windows deps
         if: runner.os == 'Windows'
-        run: choco install cmake llvm strawberryperl -y
+        run: |
+          choco install cmake llvm strawberryperl -y
+          refreshenv
 
       - name: Install macOS deps
         if: runner.os == 'macOS'
@@ -143,7 +145,7 @@ jobs:
                    target/${{ matrix.target }}/release/bundle/appimage/*.AppImage; do
             [ -f "$f" ] && cp "$f" dist/
           done
-          if [ "${{ matrix.cuda }}" = "true" ]; then
+          if [ "${{ matrix.cuda }}" = "true" ] && ls dist/* 1>/dev/null 2>&1; then
             cd dist && for f in *; do mv "$f" "${f%.*}-cuda.${f##*.}"; done
           fi
 
@@ -162,7 +164,7 @@ jobs:
                    target/${{ matrix.target }}/release/bundle/nsis/*.exe; do
             [ -f "$f" ] && cp "$f" dist/
           done
-          if [ "${{ matrix.cuda }}" = "true" ]; then
+          if [ "${{ matrix.cuda }}" = "true" ] && ls dist/* 1>/dev/null 2>&1; then
             cd dist && for f in *; do mv "$f" "${f%.*}-cuda.${f##*.}"; done
           fi
 

@@ -125,6 +125,12 @@ fn main() {
             commands::create_smart_album,
             commands::get_smart_album_photos,
             commands::export_album_zip,
+            commands::list_models,
+            commands::delete_model,
+            commands::get_models_dir,
+            commands::import_custom_model,
+            commands::get_setting,
+            commands::set_setting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Mim");

@@ -3,7 +3,9 @@ mod faces;
 mod gemma;
 mod albums;
 mod library;
+mod models;
 mod secure;
+mod settings;
 mod sync;
 mod watch;
 
@@ -12,9 +14,11 @@ pub use faces::*;
 pub use gemma::*;
 pub use albums::*;
 pub use library::*;
+pub use models::*;
 pub use sync::*;
 pub use watch::*;
 pub use secure::*;
+pub use settings::*;
 
 use crate::state::AppState;
 use mim_core::db::{DedupeDb, FoldersDb, PhotosDb, SearchDb};

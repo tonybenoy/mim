@@ -13,6 +13,20 @@
   let gridSize = $state(180);
   let loadedHashes = $state(new Set<string>());
 
+  // Load photos when active folder changes
+  $effect(() => {
+    const folder = $activeFolder;
+    if (folder) {
+      isLoading.set(true);
+      getPhotos(folder.path, 500, 0)
+        .then(p => {
+          photos.set(p);
+          isLoading.set(false);
+        })
+        .catch(() => isLoading.set(false));
+    }
+  });
+
   // Batch selection
   let lastSelectedIndex = $state(-1);
   let showAlbumPicker = $state(false);

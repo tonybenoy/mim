@@ -109,7 +109,12 @@ impl AppState {
                     }
                 });
 
+                let load_handle = handle.clone();
+                let _ = load_handle.emit("face-status", "loading-models");
+
                 let pipeline = FacePipeline::new_with_progress(&models_dir, Some(tx)).await?;
+
+                let _ = load_handle.emit("face-status", "models-ready");
                 Ok(Arc::new(pipeline))
             })
             .await
@@ -149,7 +154,23 @@ impl AppState {
                     }
                 });
 
-                let gemma = GemmaVision::new_with_progress(&models_dir, Some(tx)).await?;
+                let load_handle = handle.clone();
+                let _ = load_handle.emit("gemma-status", "loading-model");
+
+                // Read selected model from settings
+                let model_id = {
+                    let conn = self.central_db.reader().lock();
+                    conn.query_row(
+                        "SELECT value FROM settings WHERE key = 'gemma_model'",
+                        [],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .unwrap_or_else(|_| "gemma-3-4b".to_string())
+                };
+
+                let gemma = GemmaVision::new_with_progress(&models_dir, &model_id, Some(tx)).await?;
+
+                let _ = load_handle.emit("gemma-status", "model-loaded");
                 Ok(Arc::new(gemma))
             })
             .await

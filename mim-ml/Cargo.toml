@@ -7,7 +7,7 @@ authors.workspace = true
 
 [features]
 default = []
-cuda = ["ort/cuda"]
+cuda = ["ort/cuda", "llama-cpp-2/cuda"]
 
 [dependencies]
 mim-core = { path = "../mim-core" }

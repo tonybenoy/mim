@@ -10,13 +10,33 @@ use serde::Serialize;
 use std::path::Path;
 use tracing::info;
 
-const GEMMA_MODEL_URL: &str =
-    "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it-Q4_K_M.gguf";
-const GEMMA_MMPROJ_URL: &str =
-    "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-e4b-it-f16.gguf";
+pub struct GemmaModelConfig {
+    pub model_url: &'static str,
+    pub mmproj_url: &'static str,
+    pub model_filename: &'static str,
+    pub mmproj_filename: &'static str,
+}
 
-const GEMMA_MODEL_FILENAME: &str = "gemma-4-e4b-it-Q4_K_M.gguf";
-const GEMMA_MMPROJ_FILENAME: &str = "mmproj-gemma-4-e4b-it-f16.gguf";
+pub const GEMMA_3_4B: GemmaModelConfig = GemmaModelConfig {
+    model_url: "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
+    mmproj_url: "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf",
+    model_filename: "gemma-3-4b-it-Q4_K_M.gguf",
+    mmproj_filename: "mmproj-gemma3-4b-f16.gguf",
+};
+
+pub const GEMMA_3_1B: GemmaModelConfig = GemmaModelConfig {
+    model_url: "https://huggingface.co/ggml-org/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
+    mmproj_url: "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf",
+    model_filename: "gemma-3-1b-it-Q4_K_M.gguf",
+    mmproj_filename: "mmproj-gemma3-1b-f16.gguf",
+};
+
+pub fn get_model_config(model_id: &str) -> &'static GemmaModelConfig {
+    match model_id {
+        "gemma-3-1b" => &GEMMA_3_1B,
+        _ => &GEMMA_3_4B, // default
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImageAnalysis {
@@ -31,39 +51,54 @@ pub struct GemmaVision {
 }
 
 impl GemmaVision {
-    pub async fn new(models_dir: &Path) -> Result<Self> {
-        Self::new_with_progress(models_dir, None).await
+    pub async fn new(models_dir: &Path, model_id: &str) -> Result<Self> {
+        Self::new_with_progress(models_dir, model_id, None).await
     }
 
     pub async fn new_with_progress(
         models_dir: &Path,
+        model_id: &str,
         progress_tx: Option<tokio::sync::watch::Sender<Option<crate::models::DownloadProgress>>>,
     ) -> Result<Self> {
+        let config = get_model_config(model_id);
+
         let mut manager = ModelManager::new(models_dir.to_path_buf());
         if let Some(tx) = progress_tx {
             manager = manager.with_progress(tx);
         }
 
-        info!("Ensuring Gemma model files...");
+        info!("Ensuring Gemma model files (config: {})...", model_id);
         let model_path = manager
-            .ensure_model(GEMMA_MODEL_FILENAME, GEMMA_MODEL_URL)
+            .ensure_model(config.model_filename, config.model_url)
             .await?;
         let mmproj_path = manager
-            .ensure_model(GEMMA_MMPROJ_FILENAME, GEMMA_MMPROJ_URL)
+            .ensure_model(config.mmproj_filename, config.mmproj_url)
             .await?;
 
-        let backend =
-            LlamaBackend::init().map_err(|e| MlError::Other(format!("backend init: {e}")))?;
+        info!("Loading Gemma model into memory (this may take a minute)...");
 
-        let model_params = LlamaModelParams::default();
-        let model = LlamaModel::load_from_file(&backend, &model_path, &model_params)
-            .map_err(|e| MlError::Other(format!("model load: {e}")))?;
+        let model_path_owned = model_path.to_path_buf();
+        let mmproj_str = mmproj_path.to_string_lossy().to_string();
 
-        info!("Gemma vision model loaded (multimodal support: checking at inference)");
+        // Load on a blocking thread — model loading reads 5+ GB from disk
+        let (backend, model) = tokio::task::spawn_blocking(move || {
+            let backend = LlamaBackend::init()
+                .map_err(|e| MlError::Other(format!("backend init: {e}")))?;
+
+            let model_params = LlamaModelParams::default();
+            let model = LlamaModel::load_from_file(&backend, &model_path_owned, &model_params)
+                .map_err(|e| MlError::Other(format!("model load: {e}")))?;
+
+            Ok::<_, MlError>((backend, model))
+        })
+        .await
+        .map_err(|e| MlError::Other(format!("spawn blocking: {e}")))??;
+
+        info!("Gemma vision model loaded");
         Ok(Self {
             backend,
             model,
-            mmproj_path: mmproj_path.to_string_lossy().to_string(),
+            mmproj_path: mmproj_str,
         })
     }
 

@@ -8,7 +8,12 @@
 - **System dependencies:**
   - **Arch Linux:** `sudo pacman -S webkit2gtk-4.1 clang cmake`
   - **Ubuntu/Debian:** `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev clang cmake`
-  - **Windows:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/), then `choco install cmake llvm nodejs strawberryperl`
+  - **Windows:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/), then:
+    ```powershell
+    winget install Kitware.CMake LLVM.LLVM StrawberryPerl.StrawberryPerl OpenJS.NodeJS
+    # Optional: GPU acceleration
+    winget install Nvidia.CUDA
+    ```
   - **macOS:** `xcode-select --install && brew install cmake`
 
 ### Build Steps

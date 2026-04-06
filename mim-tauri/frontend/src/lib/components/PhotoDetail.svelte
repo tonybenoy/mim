@@ -15,6 +15,50 @@
   let faces = $state<Face[]>([]);
   let showCompare = $state(false);
 
+  // Zoom & fullscreen
+  let zoomLevel = $state(1);
+  let panX = $state(0);
+  let panY = $state(0);
+  let isDragging = $state(false);
+  let dragStartX = $state(0);
+  let dragStartY = $state(0);
+  let isFullscreen = $state(false);
+  let showInfo = $state(true);
+
+  function zoomIn() { zoomLevel = Math.min(zoomLevel * 1.3, 10); }
+  function zoomOut() { zoomLevel = Math.max(zoomLevel / 1.3, 0.5); }
+  function zoomReset() { zoomLevel = 1; panX = 0; panY = 0; }
+  function toggleFullscreen() { isFullscreen = !isFullscreen; showInfo = !isFullscreen; }
+
+  function handleWheel(e: WheelEvent) {
+    e.preventDefault();
+    if (e.deltaY < 0) zoomIn();
+    else zoomOut();
+  }
+
+  function handlePointerDown(e: PointerEvent) {
+    if (zoomLevel <= 1) return;
+    isDragging = true;
+    dragStartX = e.clientX - panX;
+    dragStartY = e.clientY - panY;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function handlePointerMove(e: PointerEvent) {
+    if (!isDragging) return;
+    panX = e.clientX - dragStartX;
+    panY = e.clientY - dragStartY;
+  }
+
+  function handlePointerUp() {
+    isDragging = false;
+  }
+
+  function handleDoubleClick() {
+    if (zoomLevel > 1) zoomReset();
+    else { zoomLevel = 3; }
+  }
+
   // Load faces when photo changes
   $effect(() => {
     const p = $photos.find(p => p.id === $selectedPhotoId);
@@ -26,6 +70,7 @@
       faces = [];
     }
     chatMessages = [];
+    zoomReset();
   });
 
   async function sendChat() {
@@ -120,6 +165,11 @@
       e.preventDefault();
       handleTrash();
     }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); zoomIn(); }
+    if (e.key === '-') { e.preventDefault(); zoomOut(); }
+    if (e.key === '0') { e.preventDefault(); zoomReset(); }
+    if (e.key === 'F11' || (e.key === 'f' && e.shiftKey)) { e.preventDefault(); toggleFullscreen(); }
+    if (e.key === 'i') { e.preventDefault(); showInfo = !showInfo; }
   }
 </script>
 
@@ -145,18 +195,48 @@
       transition:scale={{ start: 0.92, duration: 350 }}
     >
       <!-- Image area -->
-      <div class="flex-1 flex items-center justify-center p-8">
+      <div
+        class="flex-1 flex items-center justify-center overflow-hidden relative"
+        style="padding: {isFullscreen ? '0' : '2rem'}; cursor: {zoomLevel > 1 ? (isDragging ? 'grabbing' : 'grab') : 'default'};"
+        onwheel={handleWheel}
+        onpointerdown={handlePointerDown}
+        onpointermove={handlePointerMove}
+        onpointerup={handlePointerUp}
+        ondblclick={handleDoubleClick}
+      >
         <img
           src={getFullSrc(photo)}
           alt={photo.filename}
-          class="max-w-full max-h-full object-contain rounded-lg"
-          style="box-shadow: 0 20px 60px rgba(0,0,0,0.5);"
+          class="max-w-full max-h-full object-contain select-none"
+          style="
+            transform: scale({zoomLevel}) translate({panX / zoomLevel}px, {panY / zoomLevel}px);
+            transition: {isDragging ? 'none' : 'transform 0.2s ease'};
+            border-radius: {isFullscreen ? '0' : '8px'};
+            box-shadow: {isFullscreen ? 'none' : '0 20px 60px rgba(0,0,0,0.5)'};
+          "
+          draggable="false"
         />
+
+        <!-- Zoom controls overlay -->
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-1 px-2 py-1.5 rounded-xl"
+          style="background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);">
+          <button class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs hover:bg-white/10 transition-colors" onclick={zoomOut} title="Zoom out (-)">−</button>
+          <button class="px-2 h-7 rounded-lg flex items-center justify-center text-white text-[10px] hover:bg-white/10 transition-colors min-w-[3rem]" onclick={zoomReset} title="Reset zoom (0)">{Math.round(zoomLevel * 100)}%</button>
+          <button class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs hover:bg-white/10 transition-colors" onclick={zoomIn} title="Zoom in (+)">+</button>
+          <div class="w-px h-4 bg-white/20 mx-1"></div>
+          <button class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs hover:bg-white/10 transition-colors" onclick={toggleFullscreen} title="Fullscreen (Shift+F)">
+            {isFullscreen ? '⊡' : '⊞'}
+          </button>
+          <button class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-xs hover:bg-white/10 transition-colors" onclick={() => showInfo = !showInfo} title="Toggle info (I)">
+            {showInfo ? '◧' : '◨'}
+          </button>
+        </div>
       </div>
 
       <!-- Info panel -->
+      {#if showInfo}
       <div
-        class="glass-heavy w-[340px] h-full overflow-y-auto p-6 flex flex-col gap-5"
+        class="glass-heavy w-[340px] h-full overflow-y-auto p-6 flex flex-col gap-5 shrink-0"
         style="border-left: 1px solid var(--color-border-glass);"
         in:fly={{ x: 340, duration: 350, delay: 100 }}
       >
@@ -416,6 +496,7 @@
           </div>
         </div>
       </div>
+      {/if}
     </div>
   </div>
 

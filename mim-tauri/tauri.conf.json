@@ -1,6 +1,6 @@
 {
   "productName": "Mim",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "identifier": "com.mim.app",
   "build": {
     "frontendDist": "frontend/build",
@@ -25,7 +25,7 @@
       "assetProtocol": {
         "enable": true,
         "scope": {
-          "allow": ["/**"],
+          "allow": ["/**", "C:\\**", "D:\\**", "E:\\**", "F:\\**", "$HOME\\**"],
           "requireLiteralLeadingDot": false
         }
       }

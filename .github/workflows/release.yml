@@ -120,7 +120,7 @@ jobs:
         run: npm ci && npm run build
 
       - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli@latest
+        run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build (CUDA)
         if: matrix.cuda

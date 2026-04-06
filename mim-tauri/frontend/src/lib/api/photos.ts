@@ -23,10 +23,25 @@ export interface Photo {
   altitude: number | null;
   location_name: string | null;
   ai_description: string | null;
+  // Analysis data
+  aesthetic_score: number | null;
+  blur_score: number | null;
+  scene_type: string | null;
+  dominant_colors: string | null;
+  perceptual_hash: string | null;
+  is_screenshot: boolean | null;
+  is_nsfw: boolean | null;
+  ocr_text: string | null;
+  weather: string | null;
+  time_of_day: string | null;
+  event_id: string | null;
+  analysis_processed: boolean;
+  // User data
   rating: number;
   is_favorite: boolean;
   is_trashed: boolean;
   trashed_at: string | null;
+  // Processing state
   thumbnail_generated: boolean;
   faces_processed: boolean;
   ai_processed: boolean;
@@ -67,8 +82,8 @@ export async function scanFolder(path: string): Promise<ScanProgress> {
   return invoke('scan_folder', { path });
 }
 
-export async function getPhotos(folderPath: string, limit?: number, offset?: number): Promise<Photo[]> {
-  return invoke('get_photos', { folderPath, limit, offset });
+export async function getPhotos(folderPath: string, limit?: number, offset?: number, mediaType?: string): Promise<Photo[]> {
+  return invoke('get_photos', { folderPath, limit, offset, mediaType });
 }
 
 export async function getPhotoDetail(folderPath: string, photoId: string): Promise<Photo | null> {
@@ -81,6 +96,19 @@ export async function getPhotoCount(folderPath: string): Promise<number> {
 
 export async function getThumbnailUrl(folderPath: string, contentHash: string, size?: string): Promise<string> {
   return invoke('get_thumbnail_url', { folderPath, contentHash, size });
+}
+
+export async function ensureThumbnail(folderPath: string, photoId: string): Promise<boolean> {
+  return invoke('ensure_thumbnail', { folderPath, photoId });
+}
+
+export interface DuplicateGroup {
+  content_hash: string;
+  photos: Photo[];
+}
+
+export async function findDuplicates(folderPath: string): Promise<DuplicateGroup[]> {
+  return invoke('find_duplicates', { folderPath });
 }
 
 // Favorites & Rating

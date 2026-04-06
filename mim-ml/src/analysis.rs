@@ -85,12 +85,9 @@ impl PhotoAnalyzer {
             match Self::analyze(photo, &img_path) {
                 Some(result) => {
                     let colors_json = serde_json::to_string(&result.dominant_colors).ok();
-                    // If text detected, set a marker in ocr_text
-                    let ocr_text = if result.has_text {
-                        Some("[text detected]")
-                    } else {
-                        None
-                    };
+                    // Note: actual OCR text is extracted by Gemma during tagging.
+                    // Analysis only detects presence of text regions.
+                    let ocr_text: Option<&str> = None;
                     let _ = PhotosDb::update_analysis(
                         conn_writer,
                         &photo.id,
@@ -127,7 +124,7 @@ impl PhotoAnalyzer {
         conn_writer: &Arc<Mutex<Connection>>,
         conn_reader: &Arc<Mutex<Connection>>,
     ) -> Vec<Event> {
-        let photos = match PhotosDb::list(conn_reader, 100_000, 0) {
+        let photos = match PhotosDb::list(conn_reader, 100_000, 0, None) {
             Ok(p) => p,
             Err(_) => return Vec::new(),
         };

@@ -168,11 +168,15 @@ impl PhotosDb {
         Ok(())
     }
 
-    pub fn list(conn: &Arc<Mutex<Connection>>, limit: u32, offset: u32) -> Result<Vec<Photo>> {
+    pub fn list(conn: &Arc<Mutex<Connection>>, limit: u32, offset: u32, media_type: Option<&str>) -> Result<Vec<Photo>> {
         let conn = conn.lock();
+        let filter = match media_type {
+            Some(mt) => format!(" AND media_type = '{}'", mt.replace('\'', "''")),
+            None => String::new(),
+        };
         let sql = format!(
-            "SELECT {} FROM photos WHERE is_trashed = 0 ORDER BY COALESCE(taken_at, created_at) DESC LIMIT ?1 OFFSET ?2",
-            SELECT_COLUMNS
+            "SELECT {} FROM photos WHERE is_trashed = 0{} ORDER BY COALESCE(taken_at, created_at) DESC LIMIT ?1 OFFSET ?2",
+            SELECT_COLUMNS, filter
         );
         let mut stmt = conn.prepare(&sql)?;
         let photos = stmt.query_map(params![limit, offset], photo_from_row)?
@@ -330,6 +334,15 @@ impl PhotosDb {
         conn.execute(
             "UPDATE photos SET ai_description = ?1, updated_at = ?2 WHERE id = ?3",
             params![description, chrono::Utc::now().to_rfc3339(), photo_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_ocr_text(conn: &Arc<Mutex<Connection>>, photo_id: &str, ocr_text: &str) -> Result<()> {
+        let conn = conn.lock();
+        conn.execute(
+            "UPDATE photos SET ocr_text = ?1, updated_at = ?2 WHERE id = ?3",
+            params![ocr_text, chrono::Utc::now().to_rfc3339(), photo_id],
         )?;
         Ok(())
     }

@@ -3,9 +3,10 @@
   import { photos, activeFolder } from '$lib/stores/photos';
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { fade, fly, scale } from 'svelte/transition';
-  import { chatAboutPhoto } from '$lib/api/gemma';
-  import { getFacesForPhoto, type Face } from '$lib/api/faces';
-  import { toggleFavorite, setRating, trashPhoto, openVideoExternal } from '$lib/api/photos';
+  import { chatAboutPhoto, tagSinglePhoto } from '$lib/api/gemma';
+  import { getFacesForPhoto, detectFacesSingle, type Face } from '$lib/api/faces';
+  import { toggleFavorite, setRating, trashPhoto, openVideoExternal, getPhotoDetail } from '$lib/api/photos';
+  import { analyzeSinglePhoto } from '$lib/api/analysis';
   import { tStore } from '$lib/i18n';
   import ComparisonView from './ComparisonView.svelte';
   import type { Photo } from '$lib/api/photos';
@@ -17,6 +18,10 @@
   let showCompare = $state(false);
   let isUpscaling = $state(false);
   let upscaleMessage = $state('');
+  let isTagging = $state(false);
+  let isAnalyzing = $state(false);
+  let isDetectingFaces = $state(false);
+  let actionMessage = $state('');
 
   // Zoom & fullscreen
   let zoomLevel = $state(1);
@@ -134,6 +139,55 @@
     isUpscaling = false;
   }
 
+  async function handleTagSingle() {
+    if (!photo || !$activeFolder || isTagging) return;
+    isTagging = true;
+    actionMessage = '';
+    try {
+      await tagSinglePhoto($activeFolder.path, photo.id);
+      // Reload photo data to show new description/tags
+      const updated = await getPhotoDetail($activeFolder.path, photo.id);
+      if (updated) photos.update(list => list.map(p => p.id === updated.id ? updated : p));
+      actionMessage = 'Tagged successfully';
+    } catch (e) {
+      actionMessage = `Tag error: ${e}`;
+    }
+    isTagging = false;
+    setTimeout(() => { actionMessage = ''; }, 3000);
+  }
+
+  async function handleAnalyzeSingle() {
+    if (!photo || !$activeFolder || isAnalyzing) return;
+    isAnalyzing = true;
+    actionMessage = '';
+    try {
+      await analyzeSinglePhoto($activeFolder.path, photo.id);
+      const updated = await getPhotoDetail($activeFolder.path, photo.id);
+      if (updated) photos.update(list => list.map(p => p.id === updated.id ? updated : p));
+      actionMessage = 'Analysis complete';
+    } catch (e) {
+      actionMessage = `Analyze error: ${e}`;
+    }
+    isAnalyzing = false;
+    setTimeout(() => { actionMessage = ''; }, 3000);
+  }
+
+  async function handleDetectFacesSingle() {
+    if (!photo || !$activeFolder || isDetectingFaces) return;
+    isDetectingFaces = true;
+    actionMessage = '';
+    try {
+      const count = await detectFacesSingle($activeFolder.path, photo.id);
+      // Reload faces
+      faces = await getFacesForPhoto($activeFolder.path, photo.id);
+      actionMessage = `${count} face(s) detected`;
+    } catch (e) {
+      actionMessage = `Face detect error: ${e}`;
+    }
+    isDetectingFaces = false;
+    setTimeout(() => { actionMessage = ''; }, 3000);
+  }
+
   let photo = $derived($photos.find(p => p.id === $selectedPhotoId) ?? null);
 
   function close() {
@@ -142,7 +196,8 @@
 
   function getFullSrc(p: Photo): string {
     if (!$activeFolder) return '';
-    return convertFileSrc(`${$activeFolder.path}/${p.relative_path}`);
+    const fullPath = `${$activeFolder.path}/${p.relative_path}`.replace(/\\/g, '/');
+    return convertFileSrc(fullPath);
   }
 
   function formatFileSize(bytes: number): string {
@@ -310,6 +365,36 @@
               </button>
             {/if}
           </div>
+          <!-- AI action buttons -->
+          <div class="flex items-center gap-1">
+            <button
+              class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-[10px]"
+              style="background: var(--color-surface); color: var(--color-accent);"
+              onclick={handleTagSingle}
+              disabled={isTagging}
+              title="AI Tag this photo"
+            >
+              {#if isTagging}<span class="animate-spin">{'\u25CC'}</span>{:else}{'\u2728'}{/if}
+            </button>
+            <button
+              class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-[10px]"
+              style="background: var(--color-surface); color: var(--color-accent);"
+              onclick={handleAnalyzeSingle}
+              disabled={isAnalyzing}
+              title="Analyze this photo"
+            >
+              {#if isAnalyzing}<span class="animate-spin">{'\u25CC'}</span>{:else}{'\u25CE'}{/if}
+            </button>
+            <button
+              class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-[10px]"
+              style="background: var(--color-surface); color: var(--color-accent);"
+              onclick={handleDetectFacesSingle}
+              disabled={isDetectingFaces}
+              title="Detect faces"
+            >
+              {#if isDetectingFaces}<span class="animate-spin">{'\u25CC'}</span>{:else}{'\u263A'}{/if}
+            </button>
+          </div>
           <button
             class="neu-button w-8 h-8 rounded-lg flex items-center justify-center text-sm"
             style="background: var(--color-surface); color: var(--color-text-secondary);"
@@ -342,10 +427,11 @@
           {/if}
         </div>
 
-        <!-- Upscale status -->
-        {#if upscaleMessage}
-          <div class="text-xs px-3 py-2 rounded-xl" style="background: {upscaleMessage.startsWith('Error') ? '#fee2e2' : 'var(--color-accent-soft)'}; color: {upscaleMessage.startsWith('Error') ? '#dc2626' : 'var(--color-accent)'};">
-            {upscaleMessage}
+        <!-- Status messages -->
+        {#if upscaleMessage || actionMessage}
+          {@const msg = upscaleMessage || actionMessage}
+          <div class="text-xs px-3 py-2 rounded-xl" style="background: {msg.includes('rror') ? '#fee2e2' : 'var(--color-accent-soft)'}; color: {msg.includes('rror') ? '#dc2626' : 'var(--color-accent)'};">
+            {msg}
           </div>
         {/if}
 
@@ -418,6 +504,63 @@
             <div class="text-sm leading-relaxed" style="color: var(--color-text-primary);">
               {photo.ai_description}
             </div>
+          </div>
+        {/if}
+
+        <!-- OCR Text -->
+        {#if photo.ocr_text}
+          <div class="glass rounded-xl p-3">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--color-text-muted);">
+              Text in Image (OCR)
+            </div>
+            <div class="text-xs leading-relaxed font-mono select-all" style="color: var(--color-text-primary);">
+              {photo.ocr_text}
+            </div>
+          </div>
+        {/if}
+
+        <!-- AI Analysis -->
+        {#if photo.analysis_processed}
+          <div class="glass rounded-xl p-3">
+            <div class="text-[10px] uppercase tracking-wider font-semibold mb-2" style="color: var(--color-text-muted);">
+              Analysis
+            </div>
+            <div class="grid grid-cols-2 gap-y-1.5 text-xs">
+              {#if photo.aesthetic_score != null}
+                <span style="color: var(--color-text-muted);">Aesthetic</span>
+                <span style="color: var(--color-text-primary);">{photo.aesthetic_score.toFixed(1)}/10</span>
+              {/if}
+              {#if photo.blur_score != null}
+                <span style="color: var(--color-text-muted);">Sharpness</span>
+                <span style="color: var(--color-text-primary);">{photo.blur_score < 50 ? 'Blurry' : photo.blur_score < 200 ? 'OK' : 'Sharp'} ({photo.blur_score.toFixed(0)})</span>
+              {/if}
+              {#if photo.scene_type}
+                <span style="color: var(--color-text-muted);">Scene</span>
+                <span style="color: var(--color-text-primary);">{photo.scene_type}</span>
+              {/if}
+              {#if photo.time_of_day}
+                <span style="color: var(--color-text-muted);">Time of Day</span>
+                <span style="color: var(--color-text-primary);">{photo.time_of_day}</span>
+              {/if}
+              {#if photo.weather}
+                <span style="color: var(--color-text-muted);">Weather</span>
+                <span style="color: var(--color-text-primary);">{photo.weather}</span>
+              {/if}
+              {#if photo.is_screenshot}
+                <span style="color: var(--color-text-muted);">Type</span>
+                <span style="color: var(--color-text-primary);">Screenshot</span>
+              {/if}
+            </div>
+            {#if photo.dominant_colors}
+              <div class="mt-2">
+                <span class="text-[10px]" style="color: var(--color-text-muted);">Colors</span>
+                <div class="flex gap-1 mt-1">
+                  {#each JSON.parse(photo.dominant_colors) as color}
+                    <div class="w-5 h-5 rounded-md" style="background: {color};" title={color}></div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
           </div>
         {/if}
 

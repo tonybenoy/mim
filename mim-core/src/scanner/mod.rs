@@ -149,7 +149,25 @@ impl Scanner {
             }
         }
 
-        info!("Scan complete: {} new, {} skipped, {} errors", new_photos, skipped, errors);
+        // Prune stale DB entries — files that no longer exist on disk
+        let on_disk: HashSet<String> = files.iter()
+            .filter_map(|p| p.strip_prefix(root).ok())
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        let mut pruned = 0;
+        for existing in &existing_paths {
+            if !on_disk.contains(existing) {
+                let conn = db.writer().lock();
+                if conn.execute("DELETE FROM photos WHERE relative_path = ?1", [existing]).is_ok() {
+                    pruned += 1;
+                }
+            }
+        }
+        if pruned > 0 {
+            info!("Pruned {} stale DB entries (files no longer on disk)", pruned);
+        }
+
+        info!("Scan complete: {} new, {} skipped, {} errors, {} pruned", new_photos, skipped, errors, pruned);
         Ok(ScanResult { total_found, new_photos, skipped, errors })
     }
 }

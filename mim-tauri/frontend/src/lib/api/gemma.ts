@@ -19,6 +19,10 @@ export async function chatAboutPhoto(
   return invoke('chat_about_photo', { folderPath, photoId, question });
 }
 
+export async function tagSinglePhoto(folderPath: string, photoId: string): Promise<string> {
+  return invoke('tag_single_photo', { folderPath, photoId });
+}
+
 export function onGemmaStatus(callback: (status: string) => void): Promise<UnlistenFn> {
   return listen<string>('gemma-status', (event) => {
     callback(event.payload);

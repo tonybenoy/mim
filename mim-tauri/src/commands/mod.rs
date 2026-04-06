@@ -88,10 +88,14 @@ pub async fn scan_folder(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ScanProgress, String> {
+    tracing::info!("scan_folder called for: {}", path);
     // Allow asset protocol for this folder
     let _ = app_handle.asset_protocol_scope().allow_directory(&path, true);
 
-    let db = state.get_or_open_sidecar(&path).map_err(|e| e.to_string())?;
+    let db = state.get_or_open_sidecar(&path).map_err(|e| {
+        tracing::error!("scan_folder: failed to open sidecar for '{}': {}", path, e);
+        e.to_string()
+    })?;
 
     let root_path = path.clone();
     let db_clone = db.clone();
@@ -118,18 +122,23 @@ pub async fn scan_folder(
         }));
 
         // Generate thumbnails in parallel
-        let photos = PhotosDb::list(db_clone.reader(), 50000, 0)
+        let photos = PhotosDb::list(db_clone.reader(), 50000, 0, None)
             .map_err(|e| e.to_string())?;
         let cache_dir = root.join(".mim").join("thumbnails");
 
         let ungenerated: Vec<_> = photos.iter().filter(|p| !p.thumbnail_generated).collect();
-        tracing::info!("Generating thumbnails for {} photos", ungenerated.len());
+        let total_thumbs = ungenerated.len();
+        tracing::info!("Generating thumbnails for {} photos", total_thumbs);
+
+        let progress_counter = std::sync::atomic::AtomicUsize::new(0);
+        let thumb_handle = handle.clone();
+        let thumb_folder = root.to_string_lossy().to_string();
 
         let thumb_results: Vec<_> = ungenerated
             .par_iter()
             .map(|photo| {
                 let source_path = root.join(&photo.relative_path);
-                if source_path.exists() {
+                let result = if source_path.exists() {
                     match ThumbnailGenerator::generate_all(&source_path, &cache_dir, &photo.content_hash) {
                         Ok(_) => Some(photo.id.clone()),
                         Err(e) => {
@@ -139,7 +148,21 @@ pub async fn scan_folder(
                     }
                 } else {
                     None
+                };
+
+                let done = progress_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if done % 10 == 0 || done == total_thumbs {
+                    let _ = thumb_handle.emit("scan-status", serde_json::json!({
+                        "folder": thumb_folder,
+                        "stage": "thumbnails",
+                        "total": scan_result.total_found,
+                        "new": scan_result.new_photos,
+                        "thumb_done": done,
+                        "thumb_total": total_thumbs,
+                    }));
                 }
+
+                result
             })
             .collect();
 
@@ -173,11 +196,21 @@ pub async fn get_photos(
     folder_path: String,
     limit: Option<u32>,
     offset: Option<u32>,
+    media_type: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Photo>, String> {
-    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| e.to_string())?;
-    PhotosDb::list(db.reader(), limit.unwrap_or(100), offset.unwrap_or(0))
-        .map_err(|e| e.to_string())
+    tracing::info!("get_photos called for folder: {}", folder_path);
+    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| {
+        tracing::error!("get_photos: failed to open sidecar for '{}': {}", folder_path, e);
+        e.to_string()
+    })?;
+    let photos = PhotosDb::list(db.reader(), limit.unwrap_or(100), offset.unwrap_or(0), media_type.as_deref())
+        .map_err(|e| {
+            tracing::error!("get_photos: DB query failed for '{}': {}", folder_path, e);
+            e.to_string()
+        })?;
+    tracing::info!("get_photos returning {} photos, first: {:?}", photos.len(), photos.first().map(|p| &p.filename));
+    Ok(photos)
 }
 
 #[tauri::command]
@@ -195,8 +228,14 @@ pub async fn get_photo_count(
     folder_path: String,
     state: State<'_, AppState>,
 ) -> Result<u32, String> {
-    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| e.to_string())?;
-    PhotosDb::count(db.reader()).map_err(|e| e.to_string())
+    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| {
+        tracing::error!("get_photo_count: sidecar open failed for '{}': {}", folder_path, e);
+        e.to_string()
+    })?;
+    PhotosDb::count(db.reader()).map_err(|e| {
+        tracing::error!("get_photo_count: query failed for '{}': {}", folder_path, e);
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -221,6 +260,50 @@ pub async fn get_thumbnail_url(
     } else {
         Err("Thumbnail not found".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn ensure_thumbnail(
+    folder_path: String,
+    photo_id: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| e.to_string())?;
+    let photo = PhotosDb::get_by_id(db.reader(), &photo_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Photo not found".to_string())?;
+
+    if photo.thumbnail_generated {
+        return Ok(true); // already done
+    }
+
+    let root = std::path::PathBuf::from(&folder_path);
+    let source_path = root.join(&photo.relative_path);
+    let cache_dir = root.join(".mim").join("thumbnails");
+    let hash = photo.content_hash.clone();
+    let id = photo.id.clone();
+    let db_clone = db.clone();
+
+    // Generate thumbnail on a blocking thread
+    tokio::task::spawn_blocking(move || {
+        if !source_path.exists() {
+            return Err(format!("Source file not found: {}", source_path.display()));
+        }
+        ThumbnailGenerator::generate(&source_path, &cache_dir, &hash, &[ThumbnailSize::Grid])
+            .map_err(|e| format!("Thumbnail generation failed: {e}"))?;
+        let _ = PhotosDb::mark_thumbnail_generated(db_clone.writer(), &id);
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {e}"))??;
+
+    // Notify frontend
+    let _ = app_handle.emit("thumbnail-ready", serde_json::json!({
+        "photo_id": photo_id,
+    }));
+
+    Ok(true)
 }
 
 #[tauri::command]

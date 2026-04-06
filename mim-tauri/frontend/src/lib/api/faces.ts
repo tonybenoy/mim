@@ -77,3 +77,7 @@ export function onFaceProcessingProgress(
     callback(event.payload);
   });
 }
+
+export async function detectFacesSingle(folderPath: string, photoId: string): Promise<number> {
+  return invoke('detect_faces_single', { folderPath, photoId });
+}

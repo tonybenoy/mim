@@ -2980,7 +2980,7 @@ dependencies = [
 
 [[package]]
 name = "mim-core"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "argon2",
  "blake3",
@@ -3009,7 +3009,7 @@ dependencies = [
 
 [[package]]
 name = "mim-ml"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "bytemuck",
  "chrono",
@@ -3034,7 +3034,7 @@ dependencies = [
 
 [[package]]
 name = "mim-tauri"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "chrono",
  "directories",

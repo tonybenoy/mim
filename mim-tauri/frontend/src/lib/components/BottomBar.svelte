@@ -25,10 +25,10 @@
     setTimeout(() => indicatorScale.set(1), 150);
   }
 
-  $: {
+  $effect(() => {
     const idx = sections.findIndex(s => s.id === $currentSection);
     if (idx >= 0) indicatorX.set(idx * 100);
-  }
+  });
 </script>
 
 <nav

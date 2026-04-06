@@ -54,6 +54,35 @@ pub async fn process_faces(
 }
 
 #[tauri::command]
+pub async fn detect_faces_single(
+    folder_path: String,
+    photo_id: String,
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let pipeline = state
+        .get_or_init_pipeline_with_handle(&app_handle)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| e.to_string())?;
+    let photo = PhotosDb::get_by_id(db.reader(), &photo_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Photo not found")?;
+
+    let root = std::path::PathBuf::from(&folder_path);
+
+    let faces_found = tokio::task::spawn_blocking(move || {
+        pipeline.process_photo(&photo, &root, &db)
+    })
+    .await
+    .map_err(|e| format!("task join: {e}"))?
+    .map_err(|e| e.to_string())?;
+
+    Ok(faces_found)
+}
+
+#[tauri::command]
 pub async fn cluster_faces(
     folder_path: String,
     app_handle: AppHandle,

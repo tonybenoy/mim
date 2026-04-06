@@ -10,8 +10,11 @@ pub fn run_sidecar_migrations(conn: &mut Connection) -> Result<()> {
 
     conn.execute_batch(SIDECAR_SCHEMA)?;
 
-    // Incremental migrations for existing databases
+    // Incremental migrations for existing databases (adds missing columns)
     run_sidecar_incremental(conn)?;
+
+    // Create indexes AFTER migrations so columns exist for old databases
+    conn.execute_batch(SIDECAR_INDEXES)?;
 
     Ok(())
 }
@@ -58,6 +61,8 @@ fn run_sidecar_incremental(conn: &mut Connection) -> Result<()> {
         .filter_map(|r| r.ok())
         .collect();
 
+    tracing::info!("Sidecar DB has {} columns in photos table", columns.len());
+
     let migrations: &[(&str, &str)] = &[
         // User metadata
         ("rating", "ALTER TABLE photos ADD COLUMN rating INTEGER NOT NULL DEFAULT 0"),
@@ -81,6 +86,7 @@ fn run_sidecar_incremental(conn: &mut Connection) -> Result<()> {
 
     for (col, sql) in migrations {
         if !columns.iter().any(|c| c == col) {
+            tracing::info!("Running migration: adding column '{}'", col);
             conn.execute_batch(sql)?;
         }
     }
@@ -157,12 +163,6 @@ CREATE INDEX IF NOT EXISTS idx_photos_taken_at ON photos(taken_at);
 CREATE INDEX IF NOT EXISTS idx_photos_content_hash ON photos(content_hash);
 CREATE INDEX IF NOT EXISTS idx_photos_location ON photos(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_photos_processing ON photos(faces_processed, ai_processed, thumbnail_generated);
-CREATE INDEX IF NOT EXISTS idx_photos_perceptual_hash ON photos(perceptual_hash);
-CREATE INDEX IF NOT EXISTS idx_photos_event_id ON photos(event_id);
-CREATE INDEX IF NOT EXISTS idx_photos_analysis ON photos(analysis_processed);
-CREATE INDEX IF NOT EXISTS idx_photos_favorite ON photos(is_favorite);
-CREATE INDEX IF NOT EXISTS idx_photos_rating ON photos(rating);
-CREATE INDEX IF NOT EXISTS idx_photos_trashed ON photos(is_trashed);
 
 CREATE TABLE IF NOT EXISTS events (
     id          TEXT PRIMARY KEY,
@@ -232,6 +232,16 @@ CREATE TABLE IF NOT EXISTS album_photos (
     position INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (album_id, photo_id)
 );
+";
+
+/// Indexes that depend on columns added by migrations — must run AFTER run_sidecar_incremental.
+const SIDECAR_INDEXES: &str = "
+CREATE INDEX IF NOT EXISTS idx_photos_perceptual_hash ON photos(perceptual_hash);
+CREATE INDEX IF NOT EXISTS idx_photos_event_id ON photos(event_id);
+CREATE INDEX IF NOT EXISTS idx_photos_analysis ON photos(analysis_processed);
+CREATE INDEX IF NOT EXISTS idx_photos_favorite ON photos(is_favorite);
+CREATE INDEX IF NOT EXISTS idx_photos_rating ON photos(rating);
+CREATE INDEX IF NOT EXISTS idx_photos_trashed ON photos(is_trashed);
 ";
 
 const CENTRAL_SCHEMA: &str = "

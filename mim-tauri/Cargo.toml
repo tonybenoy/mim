@@ -29,5 +29,8 @@ reqwest = { version = "0.12", features = ["json"] }
 warp = "0.3"
 zip = "2"
 
+[features]
+cuda = ["mim-ml/cuda"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

@@ -29,3 +29,7 @@ export async function getEvents(folderPath: string): Promise<PhotoEvent[]> {
 export async function getPhotoColors(folderPath: string, photoId: string): Promise<string[]> {
   return invoke('get_photo_colors', { folderPath, photoId });
 }
+
+export async function analyzeSinglePhoto(folderPath: string, photoId: string): Promise<boolean> {
+  return invoke('analyze_single_photo', { folderPath, photoId });
+}

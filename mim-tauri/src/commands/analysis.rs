@@ -16,9 +16,13 @@ pub async fn analyze_folder(
     app_handle: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<AnalysisProgress, String> {
+    tracing::info!("analyze_folder called for: {}", folder_path);
     let db = state
         .get_or_open_sidecar(&folder_path)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            tracing::error!("analyze_folder: sidecar open failed: {}", e);
+            e.to_string()
+        })?;
 
     let root = folder_path.clone();
     let db_clone = db.clone();
@@ -38,8 +42,12 @@ pub async fn analyze_folder(
             .map(|v| v.len())
             .unwrap_or(0);
 
+        tracing::info!("analyze_folder: {} unprocessed photos to analyze", unprocessed_count);
+
         let processed =
             PhotoAnalyzer::analyze_folder(db_clone.writer(), db_clone.reader(), root_path);
+
+        tracing::info!("analyze_folder: processed {} photos", processed);
 
         // Also run event clustering
         let _ = PhotoAnalyzer::cluster_events(db_clone.writer(), db_clone.reader());
@@ -62,6 +70,45 @@ pub async fn analyze_folder(
     .map_err(|e| format!("task join: {e}"))?;
 
     Ok(result)
+}
+
+#[tauri::command]
+pub async fn analyze_single_photo(
+    folder_path: String,
+    photo_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let db = state.get_or_open_sidecar(&folder_path).map_err(|e| e.to_string())?;
+    let photo = PhotosDb::get_by_id(db.reader(), &photo_id)
+        .map_err(|e| e.to_string())?
+        .ok_or("Photo not found")?;
+
+    let root = std::path::PathBuf::from(&folder_path);
+    let img_path = root.join(&photo.relative_path);
+
+    let db_clone = db.clone();
+    let pid = photo_id.clone();
+
+    tokio::task::spawn_blocking(move || {
+        match PhotoAnalyzer::analyze(&photo, &img_path) {
+            Some(result) => {
+                let colors_json = serde_json::to_string(&result.dominant_colors).ok();
+                let _ = PhotosDb::update_analysis(
+                    db_clone.writer(), &pid,
+                    Some(result.blur_score as f64),
+                    colors_json.as_deref(),
+                    Some(&result.perceptual_hash),
+                    result.is_screenshot,
+                    Some(&result.time_of_day),
+                    if result.has_text { Some("[text detected]") } else { None },
+                );
+                Ok(true)
+            }
+            None => Err("Analysis failed".to_string()),
+        }
+    })
+    .await
+    .map_err(|e| format!("task join: {e}"))?
 }
 
 #[tauri::command]

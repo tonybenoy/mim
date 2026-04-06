@@ -2,7 +2,7 @@
   import { sidebarOpen, currentSection, mlStatus, mlStatusText, mlProgress } from '$lib/stores/ui';
   import { tStore } from '$lib/i18n';
   import { folders, activeFolder } from '$lib/stores/photos';
-  import { addFolder, removeFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder } from '$lib/api/photos';
+  import { addFolder, removeFolder, scanFolder, getFolders, getPhotos, getPhotoCount, lockFolder, unlockFolder, verifyFolderPassword, openLockedFolder, findDuplicates } from '$lib/api/photos';
   import { processFaces, clusterFaces, onFaceProcessingProgress } from '$lib/api/faces';
   import { tagPhotos, onTaggingProgress, onGemmaStatus } from '$lib/api/gemma';
   import { analyzeFolder } from '$lib/api/analysis';
@@ -73,12 +73,12 @@
     }).then(fn => unlistens.push(fn));
 
     listen<any>('scan-status', (event) => {
-      const { folder, stage, total, new: newCount } = event.payload;
-      const name = folder?.split('/').pop() || folder;
+      const { folder, stage, total, new: newCount, thumb_done, thumb_total } = event.payload;
       if (stage === 'scanning') {
         folderStatus = { ...folderStatus, [folder]: { stage: 'scanning', text: 'Scanning files...' } };
       } else if (stage === 'thumbnails') {
-        folderStatus = { ...folderStatus, [folder]: { stage: 'thumbnails', text: `${newCount} new / ${total} total — thumbnails...` } };
+        const thumbText = thumb_done != null ? ` (${thumb_done}/${thumb_total})` : '';
+        folderStatus = { ...folderStatus, [folder]: { stage: 'thumbnails', text: `${newCount} new / ${total} total \u2014 thumbnails${thumbText}` } };
       } else if (stage === 'done') {
         folderStatus = { ...folderStatus, [folder]: { stage: 'done', text: `${newCount} new photos found` } };
         setTimeout(() => {
@@ -223,10 +223,18 @@
     globalText = 'Scanning all folders...';
     await Promise.allSettled($folders.map(f => handleScanFolder(f)));
 
-    // Run AI sequentially per folder (GPU/memory bound)
+    // Run AI pipelines per folder — sequential to avoid GPU contention
     for (const folder of $folders) {
-      globalText = `Detecting faces in ${folder.path.split(/[/\\]/).pop()}...`;
+      const name = folder.path.split(/[/\\]/).pop();
+
+      globalText = `Detecting faces in ${name}...`;
       await handleProcessFolder(folder);
+
+      globalText = `AI tagging ${name}...`;
+      await handleTagFolder(folder);
+
+      globalText = `Analyzing ${name}...`;
+      await handleAnalyzeFolder(folder);
     }
 
     globalProcessing = false;
@@ -314,6 +322,18 @@
     }
   }
 
+  async function handleFindDuplicates(folder: FolderSource) {
+    folderStatus = { ...folderStatus, [folder.path]: { stage: 'analyzing', text: 'Finding duplicates...' } };
+    try {
+      const groups = await findDuplicates(folder.path);
+      const totalDupes = groups.reduce((sum, g) => sum + g.photos.length - 1, 0);
+      folderStatus = { ...folderStatus, [folder.path]: { stage: 'done', text: `${groups.length} duplicate groups (${totalDupes} extras)` } };
+      setTimeout(() => { const s = { ...folderStatus }; delete s[folder.path]; folderStatus = s; }, 5000);
+    } catch (e) {
+      folderStatus = { ...folderStatus, [folder.path]: { stage: 'error', text: `${e}` } };
+    }
+  }
+
   async function handleRemoveFolder(folder: FolderSource) {
     if (!window.confirm(`Remove "${folder.label || folder.path.split(/[/\\]/).pop()}" from Mim?\n\nThis will NOT delete your photos — only remove it from Mim's library.`)) return;
     try {
@@ -329,11 +349,14 @@
     }
   }
 
-  // Load folders on mount
+  // Load folders once on mount
+  let foldersLoaded = false;
   $effect(() => {
+    if (foldersLoaded) return;
+    foldersLoaded = true;
     getFolders().then(f => {
       folders.set(f);
-      if (f.length > 0 && !$activeFolder) activeFolder.set(f[0]);
+      if (f.length > 0) activeFolder.set(f[0]);
     }).catch(() => {});
   });
 </script>
@@ -374,14 +397,14 @@
               style="color: {$activeFolder?.id === folder.id ? 'var(--color-accent)' : 'var(--color-text-primary)'};"
               onclick={() => selectFolder(folder)}
             >
-              <span class="text-xs">{$activeFolder?.id === folder.id ? '&#x25C6;' : '&#x25C7;'}</span>
+              <span class="text-xs">{$activeFolder?.id === folder.id ? '\u25C6' : '\u25C7'}</span>
               {#if lockedFolders.has(folder.path) && !unlockedFolders.has(folder.path)}
                 <span class="text-xs">&#x1F512;</span>
               {/if}
               <span class="truncate flex-1">{folder.label || folder.path.split(/[/\\]/).pop()}</span>
               <span class="text-[10px] px-1.5 py-0.5 rounded-full"
                 style="background: var(--color-surface); color: var(--color-text-muted);">
-                {folderCounts[folder.path] ?? '&#x2014;'}
+                {folderCounts[folder.path] ?? '\u2014'}
               </span>
             </button>
             <!-- Lock/unlock toggle -->
@@ -432,13 +455,19 @@
           {#if folderStatus[folder.path]}
             {@const status = folderStatus[folder.path]}
             <div class="px-3 pb-2">
-              <div class="flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1.5 cursor-default"
-                style="background: var(--color-surface); color: {status.stage === 'error' ? 'var(--color-danger)' : status.stage === 'done' ? 'var(--color-success)' : 'var(--color-accent)'};"
-                title={status.text}>
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1.5"
+                style="background: var(--color-surface); color: {status.stage === 'error' ? 'var(--color-danger)' : status.stage === 'done' ? 'var(--color-success)' : 'var(--color-accent)'}; cursor: {status.stage === 'error' ? 'pointer' : 'default'};"
+                title={status.stage === 'error' ? 'Click to copy error' : status.text}
+                onclick={() => { if (status.stage === 'error') navigator.clipboard.writeText(status.text); }}>
                 {#if status.stage !== 'done' && status.stage !== 'error'}
-                  <span class="animate-spin">◌</span>
+                  <span class="animate-spin">{'\u25CC'}</span>
                 {/if}
-                <span class="truncate">{status.text}</span>
+                {#if status.stage === 'error'}
+                  <span class="select-all break-all whitespace-normal">{status.text}</span>
+                {:else}
+                  <span class="truncate">{status.text}</span>
+                {/if}
               </div>
             </div>
           {/if}
@@ -481,6 +510,17 @@
                 title="Analyze photos (colors, blur, events)"
               >
                 ◎ {$tStore('sidebar.analyze')}
+              </button>
+            </div>
+            <div class="flex gap-1 px-3 pb-2">
+              <button
+                class="flex-1 text-[10px] px-2 py-1.5 rounded-lg transition-all hover:scale-105"
+                style="background: var(--color-surface); color: var(--color-text-secondary);"
+                onclick={() => handleFindDuplicates(folder)}
+                disabled={!!folderStatus[folder.path]}
+                title="Find duplicate photos"
+              >
+                {'\u2261'} Duplicates
               </button>
             </div>
           {/if}
@@ -568,29 +608,38 @@
         </button>
       </div>
 
-    {:else if $currentSection === 'people'}
-      <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
-        style="color: var(--color-text-muted);">
-        {$tStore('nav.people')}
-      </div>
-      <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
-        {$tStore('sidebar.people_hint')}
-      </div>
+    {:else}
+      <!-- Back to library button for non-library sections -->
+      <button
+        class="flex items-center gap-2 px-3 py-2 w-full text-left text-xs rounded-lg transition-all mb-2"
+        style="color: var(--color-accent);"
+        onclick={() => currentSection.set('library')}
+      >
+        {'\u2190'} Back to Library
+      </button>
 
-    {:else if $currentSection === 'albums'}
-      <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
-        style="color: var(--color-text-muted);">
-        {$tStore('nav.albums')}
-      </div>
-
-    {:else if $currentSection === 'trash'}
-      <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
-        style="color: var(--color-text-muted);">
-        {$tStore('sidebar.trash')}
-      </div>
-      <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
-        {$tStore('sidebar.trash_hint')}
-      </div>
+      {#if $currentSection === 'people'}
+        <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
+          style="color: var(--color-text-muted);">
+          {$tStore('nav.people')}
+        </div>
+        <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
+          {$tStore('sidebar.people_hint')}
+        </div>
+      {:else if $currentSection === 'albums'}
+        <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
+          style="color: var(--color-text-muted);">
+          {$tStore('nav.albums')}
+        </div>
+      {:else if $currentSection === 'trash'}
+        <div class="text-[11px] font-semibold uppercase tracking-widest px-3 py-2"
+          style="color: var(--color-text-muted);">
+          {$tStore('sidebar.trash')}
+        </div>
+        <div class="px-3 py-4 text-center text-xs" style="color: var(--color-text-muted);">
+          {$tStore('sidebar.trash_hint')}
+        </div>
+      {/if}
     {/if}
   </aside>
 {/if}

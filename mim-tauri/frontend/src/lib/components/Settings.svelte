@@ -204,8 +204,10 @@
   }
 
   const gemmaOptions = [
-    { value: 'gemma-3-4b', label: 'Gemma 3 4B (2.49 GB) — Recommended', desc: 'Best balance of quality and speed, full vision support' },
-    { value: 'gemma-3-1b', label: 'Gemma 3 1B (0.9 GB) — Lightweight', desc: 'Faster, uses less RAM, lower quality' },
+    { value: 'gemma-4-e4b', label: 'Gemma 4 E4B (5.3 GB) — Recommended', desc: 'Latest model, best quality, 256K context, multimodal vision' },
+    { value: 'gemma-4-e2b', label: 'Gemma 4 E2B (4.6 GB) — Efficient', desc: 'Lighter Gemma 4, good quality with less VRAM' },
+    { value: 'gemma-3-4b', label: 'Gemma 3 4B (2.49 GB) — Legacy', desc: 'Previous gen, good balance of quality and speed' },
+    { value: 'gemma-3-1b', label: 'Gemma 3 1B (0.9 GB) — Lightweight', desc: 'Fastest, uses least RAM, lower quality' },
   ];
 
   const scrfdOptions = [
@@ -620,6 +622,48 @@
             </div>
           {/if}
         {/if}
+      </div>
+
+      <!-- Database Backup/Restore -->
+      <div class="mb-6">
+        <div class="text-[11px] uppercase tracking-wider font-semibold mb-3" style="color: var(--color-text-muted);">
+          Database Backup
+        </div>
+        <div class="flex gap-2">
+          <button
+            class="flex-1 text-xs px-3 py-2 rounded-xl transition-all hover:scale-[1.02]"
+            style="background: var(--color-surface); color: var(--color-text-secondary);"
+            onclick={async () => {
+              const { save } = await import('@tauri-apps/plugin-dialog');
+              const dest = await save({ defaultPath: 'mim-backup.db', filters: [{ name: 'Database', extensions: ['db'] }] });
+              if (dest && $activeFolder) {
+                try {
+                  await invoke('backup_database', { folderPath: $activeFolder.path, destPath: dest });
+                  window.alert('Backup saved successfully');
+                } catch (e) { window.alert('Backup failed: ' + e); }
+              }
+            }}
+          >
+            {'\u2B07'} Export Backup
+          </button>
+          <button
+            class="flex-1 text-xs px-3 py-2 rounded-xl transition-all hover:scale-[1.02]"
+            style="background: var(--color-surface); color: var(--color-text-secondary);"
+            onclick={async () => {
+              const { open: openFile } = await import('@tauri-apps/plugin-dialog');
+              const src = await openFile({ filters: [{ name: 'Database', extensions: ['db'] }] });
+              if (src && typeof src === 'string' && $activeFolder) {
+                if (!window.confirm('This will replace the current database. Continue?')) return;
+                try {
+                  await invoke('restore_database', { folderPath: $activeFolder.path, sourcePath: src });
+                  window.alert('Database restored. Restart the app to see changes.');
+                } catch (e) { window.alert('Restore failed: ' + e); }
+              }
+            }}
+          >
+            {'\u2B06'} Import Backup
+          </button>
+        </div>
       </div>
 
       <!-- About -->

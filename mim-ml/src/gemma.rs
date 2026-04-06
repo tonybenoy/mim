@@ -17,6 +17,22 @@ pub struct GemmaModelConfig {
     pub mmproj_filename: &'static str,
 }
 
+// ── Gemma 4 models ─────────────────────────────────────
+pub const GEMMA_4_E4B: GemmaModelConfig = GemmaModelConfig {
+    model_url: "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it-Q4_K_M.gguf",
+    mmproj_url: "https://huggingface.co/ggml-org/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-e4b-it-f16.gguf",
+    model_filename: "gemma-4-e4b-it-Q4_K_M.gguf",
+    mmproj_filename: "mmproj-gemma-4-e4b-it-f16.gguf",
+};
+
+pub const GEMMA_4_E2B: GemmaModelConfig = GemmaModelConfig {
+    model_url: "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-e2b-it-Q8_0.gguf",
+    mmproj_url: "https://huggingface.co/ggml-org/gemma-4-E2B-it-GGUF/resolve/main/mmproj-gemma-4-e2b-it-f16.gguf",
+    model_filename: "gemma-4-e2b-it-Q8_0.gguf",
+    mmproj_filename: "mmproj-gemma-4-e2b-it-f16.gguf",
+};
+
+// ── Gemma 3 models ─────────────────────────────────────
 pub const GEMMA_3_4B: GemmaModelConfig = GemmaModelConfig {
     model_url: "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf",
     mmproj_url: "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/mmproj-model-f16.gguf",
@@ -33,8 +49,11 @@ pub const GEMMA_3_1B: GemmaModelConfig = GemmaModelConfig {
 
 pub fn get_model_config(model_id: &str) -> &'static GemmaModelConfig {
     match model_id {
+        "gemma-4-e4b" => &GEMMA_4_E4B,
+        "gemma-4-e2b" => &GEMMA_4_E2B,
         "gemma-3-1b" => &GEMMA_3_1B,
-        _ => &GEMMA_3_4B, // default
+        "gemma-3-4b" => &GEMMA_3_4B,
+        _ => &GEMMA_4_E4B, // default to best model
     }
 }
 
@@ -42,6 +61,7 @@ pub fn get_model_config(model_id: &str) -> &'static GemmaModelConfig {
 pub struct ImageAnalysis {
     pub description: String,
     pub tags: Vec<String>,
+    pub ocr_text: Option<String>,
 }
 
 pub struct GemmaVision {
@@ -106,24 +126,49 @@ impl GemmaVision {
     pub fn analyze_image(&self, image_path: &Path) -> Result<ImageAnalysis> {
         let response = self.generate_with_image(
             image_path,
-            "Describe this image in detail (2-3 sentences). Then list 5-10 single-word tags separated by commas on a new line starting with 'Tags:'.",
+            "Write a concise 2-3 sentence description of this image. Do NOT start with 'Here is' or 'This image shows' — start directly with the subject. Then on a new line write 'Tags:' followed by 5-10 comma-separated single-word tags. If there is any text visible in the image, add a line 'OCR:' followed by the readable text.",
         )?;
 
-        // Parse response into description and tags
-        let (description, tags) = if let Some(tags_idx) = response.to_lowercase().find("tags:") {
-            let desc = response[..tags_idx].trim().to_string();
-            let tags_str = &response[tags_idx + 5..];
-            let tags: Vec<String> = tags_str
+        // Parse response: description, tags, and OCR text
+        let lower = response.to_lowercase();
+        let tags_idx = lower.find("tags:");
+        let ocr_idx = lower.find("ocr:");
+
+        let desc_end = tags_idx.or(ocr_idx).unwrap_or(response.len());
+        let mut description = response[..desc_end].trim().to_string();
+
+        // Strip common boilerplate preambles
+        for prefix in ["here's a detailed description of the image:", "here is a detailed description:", "here's a description of the image:", "this image shows "] {
+            if description.to_lowercase().starts_with(prefix) {
+                description = description[prefix.len()..].trim().to_string();
+                // Capitalize first letter
+                if let Some(c) = description.chars().next() {
+                    description = c.to_uppercase().to_string() + &description[c.len_utf8()..];
+                }
+            }
+        }
+
+        let tags = if let Some(idx) = tags_idx {
+            let end = ocr_idx.unwrap_or(response.len());
+            let tags_str = &response[idx + 5..end];
+            tags_str
                 .split(',')
-                .map(|t| t.trim().to_lowercase().trim_matches('.').to_string())
+                .map(|t| t.trim().to_lowercase().trim_matches('.').trim_matches('\n').to_string())
                 .filter(|t| !t.is_empty() && t.len() < 30)
-                .collect();
-            (desc, tags)
+                .collect()
         } else {
-            (response.clone(), Vec::new())
+            Vec::new()
         };
 
-        Ok(ImageAnalysis { description, tags })
+        // Extract OCR text if present
+        let ocr_text = ocr_idx.map(|idx| response[idx + 4..].trim().to_string());
+        if let Some(ref text) = ocr_text {
+            if !text.is_empty() {
+                info!("OCR text extracted: {} chars", text.len());
+            }
+        }
+
+        Ok(ImageAnalysis { description, tags, ocr_text })
     }
 
     /// Chat about a photo with a custom question.

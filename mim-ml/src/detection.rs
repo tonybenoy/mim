@@ -30,7 +30,9 @@ impl FaceDetector {
         #[cfg(feature = "cuda")]
         {
             use ort::execution_providers::CUDAExecutionProvider;
-            builder = builder.with_execution_providers([CUDAExecutionProvider::default().build()])?;
+            builder = builder
+                .with_execution_providers([CUDAExecutionProvider::default().build()])
+                .map_err(|e| crate::error::MlError::Other(format!("CUDA provider: {e}")))?;
             debug!("CUDA execution provider requested for SCRFD");
         }
 
